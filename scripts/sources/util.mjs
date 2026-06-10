@@ -56,22 +56,51 @@ export async function fetchJSON(url, opts = {}) {
   }
 }
 
-/** Derive simple tags from title + description for the dashboard filter. */
+/** Derive simple tags for the dashboard filter.
+ * Role tags come from the TITLE only — descriptions mention every role under
+ * the sun ("report to the Product Manager", "work with engineers") and used to
+ * mislabel e.g. sales jobs as Product/Engineering. Context tags (AI / MarTech /
+ * Remote) may legitimately come from the description too. */
 export function deriveTags(title, description, extra = []) {
-  const text = `${title} ${description}`.toLowerCase();
+  const t = String(title || '').toLowerCase();
+  const full = `${t} ${String(description || '').toLowerCase()}`;
   const tags = new Set(extra.filter(Boolean));
-  const rules = [
-    ['AI', /\b(ai|ml|machine learning|llm|genai|generative)\b/],
-    ['Product', /\bproduct (manager|owner|lead)|pm\b/],
-    ['MarTech', /\bmartech|marketing tech|crm|attribution\b/],
-    ['Data', /\bdata (engineer|scientist|analyst)|analytics\b/],
+
+  const titleRules = [
+    ['Product', /\b(product (manager|owner|lead|management|director)|cpo|pm)\b/],
+    ['Data', /\b(data (engineer|scientist|analyst)|analytics)\b/],
     ['Engineering', /\b(software|backend|frontend|fullstack|developer|engineer)\b/],
     ['Design', /\b(designer|ux|ui)\b/],
-    ['Senior', /\b(senior|sr\.|staff|principal)\b/],
+    ['Sales', /\b(sales|account executive|business development)\b/],
+    ['Marketing', /\b(marketing|growth|seo)\b/],
+    ['Senior', /\b(senior|sr\.?|staff|principal)\b/],
     ['Lead', /\b(lead|head of|director|vp)\b/],
-    ['Junior', /\b(junior|jr\.|intern(ship)?)\b/],
+    ['Junior', /\b(junior|jr\.?|intern(ship)?)\b/],
+  ];
+  const textRules = [
+    ['AI', /\b(ai|ml|machine learning|llm|genai|generative)\b/],
+    ['MarTech', /\b(martech|marketing tech(nology)?|crm|attribution)\b/],
     ['Remote', /\bremote\b/],
   ];
-  for (const [tag, re] of rules) if (re.test(text)) tags.add(tag);
+
+  for (const [tag, re] of titleRules) if (re.test(t)) tags.add(tag);
+  for (const [tag, re] of textRules) if (re.test(full)) tags.add(tag);
   return [...tags];
+}
+
+/** True if the title matches at least one query: every significant word of the
+ * query appears in the title as a whole word (case-insensitive). Protects the
+ * pool from full-text search noise — e.g. Remotive returns sales jobs for
+ * "product manager" because the phrase is merely mentioned in the description. */
+export function titleMatchesQueries(title, queries) {
+  const t = String(title || '').toLowerCase();
+  return (queries || []).some((q) => {
+    const words = String(q).toLowerCase().split(/[^a-zа-яё0-9+#.]+/).filter((w) => w.length >= 2);
+    return words.length > 0 &&
+      words.every((w) => new RegExp(`(^|[^a-zа-яё0-9])${escapeRe(w)}([^a-zа-яё0-9]|$)`, 'i').test(t));
+  });
+}
+
+function escapeRe(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

@@ -28,6 +28,7 @@ export async function fetchJobs(config) {
     for (const query of config.queries) {
       const url =
         `${API}?text=${encodeURIComponent(query)}` +
+        `&search_field=name` + // match the vacancy TITLE only, not full descriptions
         `&${pass.params}` +
         `&period=${periodDays}` +
         `&per_page=50&page=0` +

@@ -30,6 +30,7 @@ export const KEYS = {
   PROFILE_META: 'profileMeta',   // { completeness, interviewDone, updatedAt }
   SEEN_JOBS: 'seenJobs',         // { ids: [...], lastVisit: iso }
   INTERVIEW_STATE: 'interviewState', // resumable interview state
+  PERSONAL_JOBS: 'personalJobs', // { fetchedAt, queries, jobs } — browser-side personal fetch cache
 };
 
 // ---------- Settings helpers ----------

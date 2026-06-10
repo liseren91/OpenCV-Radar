@@ -36,7 +36,13 @@ docker compose up
 | `JOBSPY_SITES` | `linkedin,indeed,glassdoor,google` — empty disables scraping | empty |
 | `JOBSPY_RESULTS` | results per site per query | `25` |
 | `JOB_FRESH_DAYS` | drop jobs older than N days | `14` |
+| `JOB_TITLE_FILTER` | `strict` = job title must match a query (kills full-text noise); `off` = keep everything | `strict` |
 | `FETCH_INTERVAL_HOURS` | refresh period | `12` |
+
+> 💡 **Set `JOB_QUERIES` to your actual target roles** — it drives both the API
+> sources and the scrapers. The dashboard also fetches a personal layer in your
+> browser (queries derived from your master profile), but the richest pool comes
+> from putting your roles here.
 
 ## Notifications (optional, DIY)
 

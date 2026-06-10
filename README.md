@@ -63,9 +63,19 @@ See [selfhost/README.md](selfhost/README.md). Scraping runs on your machine, und
 | Source | Key needed | Notes |
 |---|---|---|
 | [Remotive](https://remotive.com) | no | remote-only jobs, clean API |
+| [RemoteOK](https://remoteok.com/api) | no | remote-only, salary data |
+| [Arbeitnow](https://www.arbeitnow.com/api/job-board-api) | no | EU-friendly board |
 | [Adzuna](https://developer.adzuna.com/) | free key | salary data; EU country endpoints |
 | [hh.ru](https://api.hh.ru) | no | official API; may 403 from some datacenter IPs |
 | JobSpy (self-host only) | no | LinkedIn / Indeed / Glassdoor scrapers |
+
+Two relevance layers keep noise out:
+
+1. **Title filter** — sources search full descriptions, so the pipeline additionally
+   requires the job *title* to match a query (`JOB_TITLE_FILTER=off` disables).
+2. **Personal layer** — the dashboard derives search queries from *your* master
+   profile and fetches CORS-friendly APIs straight from your browser, merging
+   results into the shared pool (badge "👤 personal").
 
 Adding a source is a single small file — see [CONTRIBUTING.md](CONTRIBUTING.md).
 

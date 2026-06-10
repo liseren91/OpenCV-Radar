@@ -28,7 +28,7 @@ export async function fetchJobs(config) {
         `https://api.adzuna.com/v1/api/jobs/${country}/search/1` +
         `?app_id=${appId}&app_key=${appKey}` +
         `&results_per_page=${RESULTS_PER_PAGE}` +
-        `&what=${encodeURIComponent(query)}` +
+        `&title_only=${encodeURIComponent(query)}` + // match the job TITLE, not full descriptions
         `&max_days_old=${config.freshDays}` +
         `&content-type=application/json`;
 

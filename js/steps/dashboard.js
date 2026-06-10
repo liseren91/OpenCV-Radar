@@ -4,6 +4,9 @@
 import { el, toast, escapeHtml } from '../app.js';
 import { matchJobs, prefilter } from '../matcher.js';
 import { getProfile, getSettings, ls, KEYS } from '../storage.js';
+import { getPersonalJobs, mergeWithPool } from '../personal-jobs.js';
+
+const WEAK_SCORE = 40; // LLM-scored jobs below this are hidden behind a toggle
 
 export async function renderDashboard(root) {
   root.append(
@@ -32,8 +35,18 @@ export async function renderDashboard(root) {
     return;
   }
 
-  const jobs = Array.isArray(payload) ? payload : payload.jobs || [];
+  const poolJobs = Array.isArray(payload) ? payload : payload.jobs || [];
   const updatedAt = payload.updated_at || null;
+
+  // --- Personal layer: jobs fetched from the browser with queries built from
+  // YOUR profile (the shared pool is generic — one for all users). ---
+  let personal = { queries: [], jobs: [], errors: [] };
+  try {
+    personal = await getPersonalJobs(profile);
+  } catch (err) {
+    console.warn('Personal fetch failed:', err);
+  }
+  const jobs = mergeWithPool(poolJobs, personal.jobs);
 
   // --- NEW detection: anything we haven't seen in a previous visit ---
   const seen = ls.get(KEYS.SEEN_JOBS, { ids: [] });
@@ -43,15 +56,38 @@ export async function renderDashboard(root) {
   ls.set(KEYS.SEEN_JOBS, { ids: jobs.map((j) => j.id).slice(0, 5000), lastVisit: new Date().toISOString() });
 
   // --- Status bar ---
+  const refreshBtn = el('button', { class: 'btn btn-secondary btn-sm', title: personal.queries.join(' · ') }, '↻ Refresh personal');
+  refreshBtn.addEventListener('click', async () => {
+    refreshBtn.disabled = true;
+    refreshBtn.innerHTML = '<span class="spinner"></span> Fetching…';
+    try {
+      await getPersonalJobs(profile, { force: true });
+      location.reload();
+    } catch (err) {
+      toast('Personal fetch failed: ' + (err.message || err), 'error', 6000);
+      refreshBtn.disabled = false;
+      refreshBtn.textContent = '↻ Refresh personal';
+    }
+  });
+
   const statusBar = el('div', { class: 'dash-status' },
-    el('span', {}, `${jobs.length} jobs in the pool`),
+    el('span', {}, `${poolJobs.length} jobs in the shared pool`),
+    personal.jobs.length
+      ? el('span', { title: `Queries from your profile: ${personal.queries.join(' · ')}` },
+          `· +${personal.jobs.length} personal (from your profile)`)
+      : null,
     updatedAt ? el('span', {}, `· updated ${new Date(updatedAt).toLocaleString()}`) : null,
     newIds.size ? el('span', { class: 'badge badge-new' }, `${newIds.size} new`) : null,
+    personal.queries.length ? refreshBtn : null,
   );
   root.append(statusBar);
+  if (personal.errors?.length) {
+    root.append(el('div', { class: 'notice warn' },
+      'Some personal sources failed: ', personal.errors.join('; ')));
+  }
 
   // --- Filters ---
-  const state = { remote: '', source: '', tag: '', query: '', onlyNew: false };
+  const state = { remote: '', source: '', tag: '', query: '', onlyNew: false, showWeak: false };
 
   const sources = [...new Set(jobs.map((j) => j.source))].sort();
   const tags = [...new Set(jobs.flatMap((j) => j.tags || []))].sort();
@@ -115,6 +151,7 @@ export async function renderDashboard(root) {
   function renderList() {
     listEl.innerHTML = '';
     let shown = 0;
+    let weakHidden = 0;
 
     for (const m of matches) {
       const j = m.job;
@@ -124,13 +161,26 @@ export async function renderDashboard(root) {
       if (state.tag && !(j.tags || []).includes(state.tag)) continue;
       if (state.onlyNew && !newIds.has(j.id)) continue;
       if (state.query && !`${j.title} ${j.company}`.toLowerCase().includes(state.query)) continue;
+      // AI said it's a weak fit — don't clutter the radar with it.
+      if (m.score !== null && m.score < WEAK_SCORE) {
+        weakHidden++;
+        if (!state.showWeak) continue;
+      }
 
       listEl.append(jobCard(m, newIds.has(j.id)));
       shown++;
       if (shown >= 100) break; // keep DOM light
     }
 
-    if (!shown) {
+    if (weakHidden) {
+      const toggle = el('a', { href: '#', style: 'cursor:pointer;' },
+        state.showWeak ? 'hide them' : 'show them');
+      toggle.addEventListener('click', (e) => { e.preventDefault(); state.showWeak = !state.showWeak; renderList(); });
+      listEl.append(el('div', { class: 'dash-status muted' },
+        `${weakHidden} weak matches (score < ${WEAK_SCORE}) ${state.showWeak ? 'shown' : 'hidden'} — `, toggle));
+    }
+
+    if (!shown && !weakHidden) {
       listEl.append(el('div', { class: 'empty-state' },
         el('div', { class: 'big' }, '🔍'),
         el('p', {}, 'Nothing matches the current filters.')));
@@ -155,6 +205,7 @@ export async function renderDashboard(root) {
         salary ? el('span', {}, `💰 ${salary}`) : null,
         j.posted_at ? el('span', {}, `🗓 ${j.posted_at}`) : null,
         el('span', { class: 'badge badge-source' }, j.source),
+        j.personal ? el('span', { class: 'badge badge-tag', title: 'Fetched by your browser with queries from your profile' }, '👤 personal') : null,
       ),
       (j.tags || []).length
         ? el('div', { style: 'display:flex; gap:6px; flex-wrap:wrap; margin:6px 0;' },

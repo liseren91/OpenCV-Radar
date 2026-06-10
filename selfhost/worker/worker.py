@@ -30,6 +30,8 @@ SITES = [s.strip() for s in os.getenv("JOBSPY_SITES", "").split(",") if s.strip(
 RESULTS_WANTED = int(os.getenv("JOBSPY_RESULTS", "25"))
 FRESH_DAYS = int(os.getenv("JOB_FRESH_DAYS", "14"))
 INTERVAL_HOURS = float(os.getenv("FETCH_INTERVAL_HOURS", "12"))
+# Drop results whose TITLE doesn't match any query (set JOB_TITLE_FILTER=off to disable).
+TITLE_FILTER = os.getenv("JOB_TITLE_FILTER", "strict") != "off"
 
 
 def log(msg: str) -> None:
@@ -142,6 +144,8 @@ def run_scrapers() -> list[dict]:
                 continue
             source = f"jobspy-{row.get('site', 'scrape')}"
             title = str(row.get("title") or "Untitled")
+            if TITLE_FILTER and not title_matches_queries(title):
+                continue
             description = strip_html(str(row.get("description") or ""))[:5000]
             is_remote = bool(row.get("is_remote")) or "remote" in f"{title} {row.get('location', '')}".lower()
             jobs.append({
@@ -161,16 +165,38 @@ def run_scrapers() -> list[dict]:
 
 
 def derive_tags(title: str, description: str) -> list[str]:
-    text = f"{title} {description}".lower()
-    rules = {
-        "AI": r"\b(ai|ml|machine learning|llm)\b",
-        "Product": r"\bproduct (manager|owner|lead)\b",
-        "MarTech": r"\bmartech|marketing tech|crm\b",
+    # Role tags from the TITLE only (descriptions mention every role under the sun);
+    # context tags (AI / MarTech / Remote) may come from the description too.
+    t = (title or "").lower()
+    full = f"{t} {(description or '').lower()}"
+    title_rules = {
+        "Product": r"\b(product (manager|owner|lead|management|director)|cpo|pm)\b",
+        "Sales": r"\b(sales|account executive|business development)\b",
         "Senior": r"\b(senior|staff|principal)\b",
         "Lead": r"\b(lead|head of|director)\b",
+    }
+    text_rules = {
+        "AI": r"\b(ai|ml|machine learning|llm)\b",
+        "MarTech": r"\b(martech|marketing tech(nology)?|crm)\b",
         "Remote": r"\bremote\b",
     }
-    return [tag for tag, pattern in rules.items() if re.search(pattern, text)]
+    tags = [tag for tag, pattern in title_rules.items() if re.search(pattern, t)]
+    tags += [tag for tag, pattern in text_rules.items() if re.search(pattern, full)]
+    return tags
+
+
+def title_matches_queries(title: str) -> bool:
+    """Same guard as the Node pipeline: every significant word of at least one
+    query must appear in the title as a whole word. Keeps scraper full-text
+    noise (sales jobs that merely *mention* 'product manager') out of the pool."""
+    t = (title or "").lower()
+    for q in QUERIES:
+        words = [w for w in re.split(r"[^a-zа-яё0-9+#.]+", q.lower()) if len(w) >= 2]
+        if words and all(
+            re.search(rf"(^|[^a-zа-яё0-9]){re.escape(w)}([^a-zа-яё0-9]|$)", t) for w in words
+        ):
+            return True
+    return False
 
 
 # ---------- Step 3: merge into data/jobs.json ----------

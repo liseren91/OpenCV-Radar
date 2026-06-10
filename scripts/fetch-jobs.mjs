@@ -17,18 +17,25 @@ import { fileURLToPath } from 'node:url';
 import * as remotive from './sources/remotive.mjs';
 import * as adzuna from './sources/adzuna.mjs';
 import * as hh from './sources/hh.mjs';
+import * as remoteok from './sources/remoteok.mjs';
+import * as arbeitnow from './sources/arbeitnow.mjs';
+import { titleMatchesQueries } from './sources/util.mjs';
 
-const SOURCES = [remotive, adzuna, hh];
+const SOURCES = [remotive, adzuna, hh, remoteok, arbeitnow];
 
 // ---------- Config (tune via env or edit here) ----------
 
 const CONFIG = {
   // Search queries — aimed at the initial audience (PM / MarTech / AI, Remote/Belgrade/EU).
   // Contributors: extend freely; each query hits each source once.
-  queries: (process.env.JOB_QUERIES || 'product manager,project manager,marketing technology,AI,data analyst,software engineer')
+  queries: (process.env.JOB_QUERIES
+    || 'product manager,product management,product owner,head of product,product lead,project manager,marketing technology,martech')
     .split(',').map((q) => q.trim()).filter(Boolean),
   freshDays: Number(process.env.JOB_FRESH_DAYS || 14), // drop jobs older than this
   maxJobs: Number(process.env.JOB_MAX || 1500),        // hard cap on output size
+  // Sources do full-text search ("product manager" anywhere in the description),
+  // so by default we also require the TITLE to match a query. JOB_TITLE_FILTER=off disables.
+  titleFilter: (process.env.JOB_TITLE_FILTER || 'strict') !== 'off',
 };
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -70,7 +77,14 @@ async function main() {
 
   // ---------- Normalize / filter / dedupe ----------
 
-  const fresh = all.filter((j) => withinDays(j.posted_at, CONFIG.freshDays));
+  // Title relevance: full-text search noise (jobs that merely *mention* a query
+  // in the description) never reaches the pool.
+  const relevant = CONFIG.titleFilter ? all.filter((j) => titleMatchesQueries(j.title, CONFIG.queries)) : all;
+  if (CONFIG.titleFilter && all.length !== relevant.length) {
+    console.log(`Title filter: dropped ${all.length - relevant.length} of ${all.length} (description-only matches)`);
+  }
+
+  const fresh = relevant.filter((j) => withinDays(j.posted_at, CONFIG.freshDays));
 
   // Dedupe across sources: same company + similar title → keep the one with salary/earlier source order.
   const deduped = dedupe(fresh);
@@ -88,7 +102,10 @@ async function main() {
   } catch { /* first run */ }
 
   const finalIds = new Set(final.map((j) => j.id));
-  const carryOver = previous.filter((j) => !finalIds.has(j.id) && withinDays(j.posted_at, CONFIG.freshDays));
+  const carryOver = previous.filter((j) => !finalIds.has(j.id)
+    && withinDays(j.posted_at, CONFIG.freshDays)
+    // Re-check relevance so junk written before a filter/query change ages out immediately.
+    && (!CONFIG.titleFilter || titleMatchesQueries(j.title, CONFIG.queries)));
   const merged = [...final, ...carryOver].slice(0, CONFIG.maxJobs);
 
   // ---------- Write ----------
