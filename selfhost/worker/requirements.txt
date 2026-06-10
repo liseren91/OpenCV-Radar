@@ -1,0 +1,10 @@
+# JobSpy — scrapers for LinkedIn / Indeed / Glassdoor / Google Jobs
+python-jobspy>=1.1.79
+
+# Zyte open-source helpers for messy scraped data:
+# dateparser — "posted 3 days ago" → real dates (18 languages)
+dateparser>=1.2
+# price-parser — "€50k–70k per year" → amount + currency
+price-parser>=0.3.4
+
+pandas>=2.0

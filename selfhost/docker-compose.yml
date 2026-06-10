@@ -1,0 +1,27 @@
+# Job Radar — self-host (Door B)
+# Static frontend + worker that refreshes data/jobs.json on a schedule,
+# using the same API adapters as the hosted version PLUS JobSpy scrapers
+# (LinkedIn / Indeed / Glassdoor) — on your machine, under your responsibility.
+#
+#   cp .env.example .env   # edit queries/location
+#   docker compose up
+#   open http://localhost:8080
+
+services:
+  web:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      # Serve the repo root as-is — the app has no build step.
+      - ..:/usr/share/nginx/html:ro
+    restart: unless-stopped
+
+  worker:
+    build: ./worker
+    env_file: .env
+    volumes:
+      # Worker needs write access to ../data/jobs.json (read-only for everything else is fine,
+      # but a single rw mount keeps it simple).
+      - ..:/app
+    restart: unless-stopped

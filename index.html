@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Job Radar — your personal job-matching radar</title>
+  <meta name="description" content="Open-source, free, privacy-first: deep candidate profile, daily job radar, CV tailoring. Bring your own LLM key." />
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#/">
+      <span class="brand-icon">📡</span>
+      <span class="brand-name">Job Radar</span>
+    </a>
+    <nav class="nav" id="main-nav">
+      <a href="#/onboarding" data-route="onboarding">Profile</a>
+      <a href="#/interview" data-route="interview">Interview</a>
+      <a href="#/dashboard" data-route="dashboard">Dashboard</a>
+      <a href="#/tailor" data-route="tailor">Tailor</a>
+      <a href="#/settings" data-route="settings" title="Settings">⚙️</a>
+    </nav>
+  </header>
+
+  <main id="app" class="app">
+    <!-- Screens are rendered here by js/app.js -->
+    <div class="loading">Loading…</div>
+  </main>
+
+  <footer class="footer">
+    <span>Open source · MIT · Your data and your API key never leave this browser.</span>
+    <a href="https://github.com/" target="_blank" rel="noopener">GitHub</a>
+  </footer>
+
+  <div id="toast-container" class="toast-container"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
