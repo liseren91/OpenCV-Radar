@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  actions: write # to re-trigger the Pages deploy after committing jobs.json
 
 concurrency:
   group: update-jobs
@@ -36,13 +37,24 @@ jobs:
         run: node scripts/fetch-jobs.mjs
 
       - name: Commit updated jobs.json
+        id: commit
         run: |
           git config user.name "job-radar-bot"
           git config user.email "actions@users.noreply.github.com"
           git add data/jobs.json
           if git diff --cached --quiet; then
             echo "No changes in jobs.json — nothing to commit."
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
           else
             git commit -m "chore: daily jobs.json update ($(date -u +%Y-%m-%d))"
             git push
+            echo "pushed=true" >> "$GITHUB_OUTPUT"
           fi
+
+      # Pushes made with GITHUB_TOKEN don't fire `on: push` workflows,
+      # so the Pages deploy must be dispatched explicitly.
+      - name: Trigger Pages deploy
+        if: steps.commit.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy-pages.yml --ref main
