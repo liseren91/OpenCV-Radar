@@ -20,12 +20,16 @@ site* rather than forcing every site through JobSpy.
 
 1. **Best tool per site** — API → adapter, RSS/JSON → light parser, HTML →
    scraper, LinkedIn → JobSpy config. Not strictly JobSpy.
-2. **Phased rollout** — Phase 1 (easy wins) → Phase 2 (Serbian/Russian HTML +
-   remaining remote boards) → Phase 3 (fragile anti-bot, optional).
-3. **Lightweight stack** — `requests` + `BeautifulSoup` for HTML; a headless
-   browser (Playwright) is added **only in Phase 3** and **only** for the 2–3
-   sites where nothing else works. Earlier phases stay browser-free.
-4. **Localhost-only boundary** — every new source (including the clean API ones)
+2. **Phased rollout** — Phase 1 (easy wins: API/RSS) → Phase 2 (Serbian/Russian
+   HTML + remaining remote boards). Phase 3 (fragile anti-bot: Wellfound,
+   workatastartup) is **dropped from scope** for now.
+3. **Lightweight stack, no headless browser** — `requests` + `BeautifulSoup`
+   only. With Phase 3 dropped there is no Playwright and no headless browser
+   anywhere; any site that requires JS rendering is out of scope.
+4. **English queries only** — search uses the existing English `JOB_QUERIES`.
+   No localized-query / synonym mechanism for the Serbian/Russian boards (out of
+   scope for now); those boards are still scraped, just with English terms.
+5. **Localhost-only boundary** — every new source (including the clean API ones)
    lives in the self-host worker. The hosted Node pipeline
    (`scripts/fetch-jobs.mjs` and its `SOURCES` list) is **not touched**, so the
    "two variants with different conditions" stay separated and the hosted
@@ -60,8 +64,6 @@ selfhost/worker/
     hubstaff.py        # HTML/JSON (verify)
     justremote.py      # HTML (verify not JS-only)
     virtual_vocations.py # HTML
-    wellfound.py       # Phase 3 — Playwright, disabled by default
-    workatastartup.py  # Phase 3 — Playwright/API, disabled by default
   tests/
     fixtures/          # saved HTML/JSON snippets per source
     test_<source>.py   # parse tests against fixtures + schema smoke test
@@ -96,7 +98,9 @@ Config via `.env`:
 - `SOURCES_ENABLED` — whitelist (comma-separated NAMEs); empty = all defaults.
 - `SOURCES_DISABLED` — blacklist.
 - API keys per source (e.g. `JOOBLE_API_KEY`).
-- Phase-3 sources stay disabled unless explicitly enabled.
+
+`ENABLED_BY_DEFAULT` remains in the contract for future opt-in sources, but in
+the current scope every shipped source is enabled by default.
 
 ## Normalized job schema (unchanged, required for every source)
 
@@ -126,13 +130,17 @@ to the JobSpy path and schema-compatible with the Node adapters.
 | 12 | HelloWorld.rs | HTML | 2 | Serbian IT board |
 | 13 | Startit (startit.rs) | RSS/HTML | 2 | WP |
 | 14 | Hubstaff Talent | HTML/JSON | 2 | freelance-leaning, verify |
-| 15 | JustRemote (justremote.co) | HTML | 2 | verify not JS-only |
+| 15 | JustRemote (justremote.co) | HTML | 2 | verify not JS-only; if JS-only → drop |
 | 16 | Virtual Vocations | HTML | 2 | much behind paywall |
-| 17 | Wellfound | Playwright | 3 | anti-bot, fragile, opt-in |
-| 18 | workatastartup (YC) | Playwright/API | 3 | needs login/JS, opt-in |
+
+**Dropped from scope (Phase 3):** Wellfound and workatastartup (YC) — both
+require a headless browser / login and are too fragile. Can be revisited later
+as a separate spec.
 
 Exact endpoints/markup are verified during implementation (one plan step per
-source); some sites may have changed since this design.
+source); some sites may have changed since this design. A Phase-2 site that
+turns out to be JS-only (no usable HTML/RSS/JSON without a browser) is dropped
+rather than escalated to a headless browser.
 
 ## Error handling (no silent failures)
 
@@ -160,7 +168,11 @@ disclaimer. All requests run on the user's machine under her IP.
 Update `selfhost/README.md`: source table, required env keys per source, and how
 to enable/disable sources (`SOURCES_ENABLED` / `SOURCES_DISABLED`).
 
-## Out of scope (explicitly untouched)
+## Out of scope (explicitly untouched / deferred)
 
-`scripts/`, `index.html`, the frontend, GitHub Actions, and the hosted pipeline.
-Changes are confined to `selfhost/`.
+- `scripts/`, `index.html`, the frontend, GitHub Actions, and the hosted
+  pipeline. Changes are confined to `selfhost/`.
+- **Phase 3** sources (Wellfound, workatastartup) and any headless browser /
+  Playwright dependency.
+- **Localized search queries / synonyms** for Serbian/Russian boards — those
+  boards are searched with the existing English `JOB_QUERIES` only.
