@@ -11,7 +11,6 @@ Loops forever:
 Scraping happens on YOUR machine with YOUR IP, under your responsibility.
 """
 
-import hashlib
 import json
 import os
 import re
@@ -20,6 +19,11 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from normalize import (
+    stable_id, strip_html, parse_date,
+    derive_location_flags, derive_tags, title_matches_queries,
+)
 
 ROOT = Path(__file__).resolve().parents[2]  # repo root (mounted at /app)
 JOBS_FILE = ROOT / "data" / "jobs.json"
@@ -36,15 +40,6 @@ TITLE_FILTER = os.getenv("JOB_TITLE_FILTER", "strict") != "off"
 
 def log(msg: str) -> None:
     print(f"[{datetime.now(timezone.utc).isoformat(timespec='seconds')}] {msg}", flush=True)
-
-
-def stable_id(source: str, url: str) -> str:
-    return hashlib.sha1(f"{source}|{url}".encode()).hexdigest()[:16]
-
-
-def strip_html(text: str) -> str:
-    text = re.sub(r"<[^>]+>", " ", text or "")
-    return re.sub(r"\s+", " ", text).strip()
 
 
 # ---------- Step 1: API sources via the shared Node pipeline ----------
@@ -66,20 +61,6 @@ def run_api_sources() -> None:
 
 
 # ---------- Step 2: JobSpy scrapers ----------
-
-def parse_posted(value) -> str | None:
-    """Normalize whatever JobSpy returns ('2026-06-01', '3 days ago', datetime) to YYYY-MM-DD."""
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value.strftime("%Y-%m-%d")
-    try:
-        import dateparser  # Zyte open source — handles '3 days ago', 18 languages
-        parsed = dateparser.parse(str(value))
-        return parsed.strftime("%Y-%m-%d") if parsed else None
-    except Exception:  # noqa: BLE001
-        return None
-
 
 def parse_salary(row) -> dict | None:
     """Prefer JobSpy's structured columns; fall back to price-parser on free text."""
@@ -144,7 +125,7 @@ def run_scrapers() -> list[dict]:
                 continue
             source = f"jobspy-{row.get('site', 'scrape')}"
             title = str(row.get("title") or "Untitled")
-            if TITLE_FILTER and not title_matches_queries(title):
+            if TITLE_FILTER and not title_matches_queries(title, QUERIES):
                 continue
             description = strip_html(str(row.get("description") or ""))[:5000]
             is_remote = bool(row.get("is_remote")) or "remote" in f"{title} {row.get('location', '')}".lower()
@@ -160,95 +141,12 @@ def run_scrapers() -> list[dict]:
                 "relocate": relocate,
                 "url": url,
                 "source": source,
-                "posted_at": parse_posted(row.get("date_posted")),
+                "posted_at": parse_date(row.get("date_posted")),
                 "salary": parse_salary(row),
                 "description": description,
                 "tags": derive_tags(title, description),
             })
     return jobs
-
-
-# Twin of scripts/sources/util.mjs::deriveLocationFlags — keeps API and scraper
-# outputs schema-compatible. Three independent flags (a hybrid job is remote AND
-# office; an on-site role with visa support is office AND relocate).
-
-_REMOTE_META = {
-    "remote", "anywhere", "worldwide", "global", "distributed",
-    "home", "wfh", "fully", "only", "first", "friendly",
-    "position", "location", "based", "across", "within",
-}
-_REGION_TOKENS = {
-    "eu", "europe", "european", "union", "us", "usa", "united", "states",
-    "america", "americas", "emea", "apac", "latam", "asia", "africa",
-    "oceania", "pacific", "cet", "cest", "gmt", "utc", "est", "pst",
-    "timezone", "tz", "time", "zone",
-    "north", "south", "east", "west", "central", "latin",
-}
-_HYBRID_RE = re.compile(r"\b(hybrid|on[-\s]?site|onsite|in[-\s]?office|in[-\s]?person)\b", re.I)
-_RELOCATE_RE = re.compile(
-    r"relocat\w+|relo[-\s]?package|visa\s+sponsorship|sponsor\s+(?:your|the|a)?\s*visas?|"
-    r"we\s+(?:will\s+)?sponsor\s+visas?|work[-\s]?permit\s+(?:assistance|sponsorship|support)|"
-    r"релок\w+|переезд\w*|визов\w+\s+поддержк\w+|оплат\w+\s+релок\w+|помощь\s+с\s+переездом",
-    re.I,
-)
-_NO_RELOCATE_RE = re.compile(
-    r"no\s+relocation|no\s+visa\s+sponsorship|cannot\s+sponsor|unable\s+to\s+sponsor|"
-    r"does\s+not\s+(?:offer\s+)?(?:relocation|sponsor)|we\s+do\s+not\s+sponsor|"
-    r"без\s+релокации|релокация\s+не\s+предоставляется",
-    re.I,
-)
-
-
-def derive_location_flags(title: str, description: str, location: str, remote: bool) -> tuple[bool, bool]:
-    full_text = f"{title}\n{description}"
-    loc = (location or "").strip()
-    if not loc or loc in {"—", "-"}:
-        office = not remote
-    else:
-        remainder = "".join(
-            w for w in re.split(r"[^a-zа-яё0-9]+", loc.lower())
-            if len(w) >= 2 and w not in _REMOTE_META and w not in _REGION_TOKENS
-        )
-        office = bool(remainder)
-    if not office and _HYBRID_RE.search(full_text):
-        office = True
-    relocate = bool(_RELOCATE_RE.search(full_text)) and not _NO_RELOCATE_RE.search(full_text)
-    return office, relocate
-
-
-def derive_tags(title: str, description: str) -> list[str]:
-    # Role tags from the TITLE only (descriptions mention every role under the sun);
-    # context tags (AI / MarTech / Remote) may come from the description too.
-    t = (title or "").lower()
-    full = f"{t} {(description or '').lower()}"
-    title_rules = {
-        "Product": r"\b(product (manager|owner|lead|management|director)|cpo|pm)\b",
-        "Sales": r"\b(sales|account executive|business development)\b",
-        "Senior": r"\b(senior|staff|principal)\b",
-        "Lead": r"\b(lead|head of|director)\b",
-    }
-    text_rules = {
-        "AI": r"\b(ai|ml|machine learning|llm)\b",
-        "MarTech": r"\b(martech|marketing tech(nology)?|crm)\b",
-        "Remote": r"\bremote\b",
-    }
-    tags = [tag for tag, pattern in title_rules.items() if re.search(pattern, t)]
-    tags += [tag for tag, pattern in text_rules.items() if re.search(pattern, full)]
-    return tags
-
-
-def title_matches_queries(title: str) -> bool:
-    """Same guard as the Node pipeline: every significant word of at least one
-    query must appear in the title as a whole word. Keeps scraper full-text
-    noise (sales jobs that merely *mention* 'product manager') out of the pool."""
-    t = (title or "").lower()
-    for q in QUERIES:
-        words = [w for w in re.split(r"[^a-zа-яё0-9+#.]+", q.lower()) if len(w) >= 2]
-        if words and all(
-            re.search(rf"(^|[^a-zа-яё0-9]){re.escape(w)}([^a-zа-яё0-9]|$)", t) for w in words
-        ):
-            return True
-    return False
 
 
 # ---------- Step 3: merge into data/jobs.json ----------
