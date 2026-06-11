@@ -17,9 +17,22 @@ Open `http://localhost:8000`. That's it — the whole app is static files.
 To refresh the job pool locally:
 
 ```bash
-node scripts/fetch-jobs.mjs              # all sources
-node scripts/fetch-jobs.mjs remotive     # one source
+# Write to a gitignored file — never commit a test pool.
+JOB_OUT_FILE=data/jobs.local.json node scripts/fetch-jobs.mjs
+
+# One specific source:
+JOB_OUT_FILE=data/jobs.local.json node scripts/fetch-jobs.mjs remotive
 ```
+
+On Windows PowerShell: `$env:JOB_OUT_FILE='data/jobs.local.json'; node scripts/fetch-jobs.mjs`.
+
+> ⚠️ **Do not run `node scripts/fetch-jobs.mjs` without `JOB_OUT_FILE`.**
+> The default output path `data/jobs.json` is owned by the daily GitHub Action
+> bot. If you commit a local override, every subsequent `git pull` will hit a
+> merge conflict on a ~20 000-line JSON file. `JOB_OUT_FILE=data/jobs.local.json`
+> writes to a path that is in `.gitignore`, so your test runs stay out of git.
+> If you want to preview the result in the dashboard, temporarily symlink or
+> rename your file to `data/jobs.json` *without committing it*.
 
 Node 18+ required (uses global `fetch`). No `npm install` needed.
 

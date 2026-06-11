@@ -39,7 +39,15 @@ const CONFIG = {
 };
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const OUT_FILE = join(ROOT, 'data', 'jobs.json');
+// `data/jobs.json` is the bot's territory — daily-overwritten by the GitHub
+// Action and consumed by the frontend. Local test runs MUST write elsewhere
+// (e.g. JOB_OUT_FILE=data/jobs.local.json) or every push will conflict with
+// the bot's commit. The Action sets nothing → keeps the production default.
+const OUT_FILE = process.env.JOB_OUT_FILE
+  ? (process.env.JOB_OUT_FILE.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(process.env.JOB_OUT_FILE)
+      ? process.env.JOB_OUT_FILE
+      : join(ROOT, process.env.JOB_OUT_FILE))
+  : join(ROOT, 'data', 'jobs.json');
 
 // ---------- Main ----------
 

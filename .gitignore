@@ -17,3 +17,8 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# Local pipeline output — keep dev runs out of git so they don't conflict
+# with the daily bot commit in data/jobs.json.
+data/jobs.local.json
+data/jobs.*.local.json
