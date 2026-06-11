@@ -4,7 +4,7 @@
 import { el, toast, escapeHtml } from '../app.js';
 import { matchJobs, prefilter } from '../matcher.js';
 import { getProfile, getSettings, ls, KEYS } from '../storage.js';
-import { getPersonalJobs, mergeWithPool } from '../personal-jobs.js';
+import { getPersonalJobs, mergeWithPool, ensureLocationFlags } from '../personal-jobs.js';
 
 const WEAK_SCORE = 40; // LLM-scored jobs below this are hidden behind a toggle
 
@@ -35,7 +35,7 @@ export async function renderDashboard(root) {
     return;
   }
 
-  const poolJobs = Array.isArray(payload) ? payload : payload.jobs || [];
+  const poolJobs = (Array.isArray(payload) ? payload : payload.jobs || []).map(ensureLocationFlags);
   const updatedAt = payload.updated_at || null;
 
   // --- Personal layer: jobs fetched from the browser with queries built from
@@ -87,12 +87,18 @@ export async function renderDashboard(root) {
   }
 
   // --- Filters ---
-  const state = { remote: '', source: '', tag: '', query: '', onlyNew: false, showWeak: false };
+  // Geo flags are three independent OR-filters: a Belgrade-based user wants
+  // Remote OR Office (Belgrade) OR Relocate (office elsewhere, with help moving).
+  // None checked = show all, mirroring the previous "Any location" default.
+  const state = { geo: new Set(), source: '', tag: '', query: '', onlyNew: false, showWeak: false };
 
   const sources = [...new Set(jobs.map((j) => j.source))].sort();
   const tags = [...new Set(jobs.flatMap((j) => j.tags || []))].sort();
 
-  const remoteSel = sel([['', 'Any location'], ['remote', 'Remote only'], ['onsite', 'On-site / hybrid']], (v) => { state.remote = v; renderList(); });
+  const geoFilter = geoFilterBox((flag, on) => {
+    if (on) state.geo.add(flag); else state.geo.delete(flag);
+    renderList();
+  });
   const sourceSel = sel([['', 'All sources'], ...sources.map((s) => [s, s])], (v) => { state.source = v; renderList(); });
   const tagSel = sel([['', 'All tags'], ...tags.map((t) => [t, t])], (v) => { state.tag = v; renderList(); });
   const queryInput = el('input', { type: 'text', placeholder: 'Search title / company…' });
@@ -101,7 +107,7 @@ export async function renderDashboard(root) {
   newCb.addEventListener('change', () => { state.onlyNew = newCb.checked; renderList(); });
 
   root.append(el('div', { class: 'filters' },
-    remoteSel, sourceSel, tagSel, queryInput,
+    geoFilter, sourceSel, tagSel, queryInput,
     el('label', { for: 'only-new', style: 'display:flex; align-items:center; gap:6px; margin:0; cursor:pointer;' }, newCb, 'NEW only'),
   ));
 
@@ -109,6 +115,28 @@ export async function renderDashboard(root) {
     const s = el('select', {}, ...options.map(([v, label]) => el('option', { value: v }, label)));
     s.addEventListener('change', () => onChange(s.value));
     return s;
+  }
+
+  function geoFilterBox(onToggle) {
+    const items = [
+      ['remote', '🌍 Remote', 'Can work from anywhere / your region'],
+      ['office', '🏢 Office', 'On-site or hybrid — physical workplace expected'],
+      ['relocate', '✈ Relocate', 'Visa sponsorship or relocation help offered'],
+    ];
+    const box = el('div', {
+      class: 'geo-filter',
+      style: 'display:flex; align-items:center; gap:10px; padding:4px 8px; border:1px solid var(--border, #ccc); border-radius:6px;',
+      title: 'Geo filters are additive — leave all unchecked to show every job',
+    });
+    for (const [flag, label, hint] of items) {
+      const cb = el('input', { type: 'checkbox', id: `geo-${flag}` });
+      cb.addEventListener('change', () => onToggle(flag, cb.checked));
+      box.append(el('label', {
+        for: `geo-${flag}`, title: hint,
+        style: 'display:flex; align-items:center; gap:4px; margin:0; cursor:pointer; user-select:none;',
+      }, cb, label));
+    }
+    return box;
   }
 
   // --- Matching ---
@@ -155,8 +183,8 @@ export async function renderDashboard(root) {
 
     for (const m of matches) {
       const j = m.job;
-      if (state.remote === 'remote' && !j.remote) continue;
-      if (state.remote === 'onsite' && j.remote) continue;
+      // Geo filter: OR over the selected flags. Empty set ⇒ no constraint.
+      if (state.geo.size && ![...state.geo].some((flag) => j[flag])) continue;
       if (state.source && j.source !== state.source) continue;
       if (state.tag && !(j.tags || []).includes(state.tag)) continue;
       if (state.onlyNew && !newIds.has(j.id)) continue;
@@ -202,6 +230,7 @@ export async function renderDashboard(root) {
       el('div', { class: 'job-meta' },
         el('span', {}, `🏢 ${j.company || '—'}`),
         el('span', {}, `📍 ${j.location || (j.remote ? 'Remote' : '—')}`),
+        ...geoBadges(j),
         salary ? el('span', {}, `💰 ${salary}`) : null,
         j.posted_at ? el('span', {}, `🗓 ${j.posted_at}`) : null,
         el('span', { class: 'badge badge-source' }, j.source),
@@ -217,6 +246,14 @@ export async function renderDashboard(root) {
         el('a', { class: 'btn btn-secondary btn-sm', href: j.url, target: '_blank', rel: 'noopener' }, 'Open posting ↗'),
       ),
     );
+  }
+
+  function geoBadges(j) {
+    const out = [];
+    if (j.remote) out.push(el('span', { class: 'badge badge-tag', title: 'Can be done remotely' }, '🌍 remote'));
+    if (j.office) out.push(el('span', { class: 'badge badge-tag', title: 'On-site or hybrid — physical workplace expected' }, '🏢 office'));
+    if (j.relocate) out.push(el('span', { class: 'badge badge-tag', title: 'Posting mentions visa sponsorship or relocation help' }, '✈ relocate'));
+    return out;
   }
 
   function scorePill(score) {

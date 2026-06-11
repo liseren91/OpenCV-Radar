@@ -2,7 +2,7 @@
 // Docs: https://api.hh.ru/openapi/redoc
 // Useful for Serbia/EU/remote-friendly listings on HeadHunter.
 
-import { stableId, stripHtml, toDateOnly, fetchJSON, deriveTags } from './util.mjs';
+import { stableId, stripHtml, toDateOnly, fetchJSON, deriveTags, deriveLocationFlags } from './util.mjs';
 
 export const name = 'hh';
 export const requiresEnv = [];
@@ -60,13 +60,17 @@ export async function fetchJobs(config) {
         ).slice(0, 5000);
 
         const remote = j.schedule?.id === 'remote' || pass.label === 'remote';
+        const location = j.area?.name || (remote ? 'Remote' : '—');
+        const { office, relocate } = deriveLocationFlags({ title: j.name, description, location, remote });
 
         jobs.push({
           id: stableId(name, jobUrl),
           title: j.name,
           company: j.employer?.name || '—',
-          location: j.area?.name || (remote ? 'Remote' : '—'),
+          location,
           remote,
+          office,
+          relocate,
           url: jobUrl,
           source: name,
           posted_at: toDateOnly(j.published_at),

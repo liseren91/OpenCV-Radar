@@ -148,12 +148,16 @@ def run_scrapers() -> list[dict]:
                 continue
             description = strip_html(str(row.get("description") or ""))[:5000]
             is_remote = bool(row.get("is_remote")) or "remote" in f"{title} {row.get('location', '')}".lower()
+            location = str(row.get("location") or LOCATION)
+            office, relocate = derive_location_flags(title, description, location, is_remote)
             jobs.append({
                 "id": stable_id(source, url),
                 "title": title,
                 "company": str(row.get("company") or "—"),
-                "location": str(row.get("location") or LOCATION),
+                "location": location,
                 "remote": is_remote,
+                "office": office,
+                "relocate": relocate,
                 "url": url,
                 "source": source,
                 "posted_at": parse_posted(row.get("date_posted")),
@@ -162,6 +166,54 @@ def run_scrapers() -> list[dict]:
                 "tags": derive_tags(title, description),
             })
     return jobs
+
+
+# Twin of scripts/sources/util.mjs::deriveLocationFlags — keeps API and scraper
+# outputs schema-compatible. Three independent flags (a hybrid job is remote AND
+# office; an on-site role with visa support is office AND relocate).
+
+_REMOTE_META = {
+    "remote", "anywhere", "worldwide", "global", "distributed",
+    "home", "wfh", "fully", "only", "first", "friendly",
+    "position", "location", "based", "across", "within",
+}
+_REGION_TOKENS = {
+    "eu", "europe", "european", "union", "us", "usa", "united", "states",
+    "america", "americas", "emea", "apac", "latam", "asia", "africa",
+    "oceania", "pacific", "cet", "cest", "gmt", "utc", "est", "pst",
+    "timezone", "tz", "time", "zone",
+    "north", "south", "east", "west", "central", "latin",
+}
+_HYBRID_RE = re.compile(r"\b(hybrid|on[-\s]?site|onsite|in[-\s]?office|in[-\s]?person)\b", re.I)
+_RELOCATE_RE = re.compile(
+    r"relocat\w+|relo[-\s]?package|visa\s+sponsorship|sponsor\s+(?:your|the|a)?\s*visas?|"
+    r"we\s+(?:will\s+)?sponsor\s+visas?|work[-\s]?permit\s+(?:assistance|sponsorship|support)|"
+    r"релок\w+|переезд\w*|визов\w+\s+поддержк\w+|оплат\w+\s+релок\w+|помощь\s+с\s+переездом",
+    re.I,
+)
+_NO_RELOCATE_RE = re.compile(
+    r"no\s+relocation|no\s+visa\s+sponsorship|cannot\s+sponsor|unable\s+to\s+sponsor|"
+    r"does\s+not\s+(?:offer\s+)?(?:relocation|sponsor)|we\s+do\s+not\s+sponsor|"
+    r"без\s+релокации|релокация\s+не\s+предоставляется",
+    re.I,
+)
+
+
+def derive_location_flags(title: str, description: str, location: str, remote: bool) -> tuple[bool, bool]:
+    full_text = f"{title}\n{description}"
+    loc = (location or "").strip()
+    if not loc or loc in {"—", "-"}:
+        office = not remote
+    else:
+        remainder = "".join(
+            w for w in re.split(r"[^a-zа-яё0-9]+", loc.lower())
+            if len(w) >= 2 and w not in _REMOTE_META and w not in _REGION_TOKENS
+        )
+        office = bool(remainder)
+    if not office and _HYBRID_RE.search(full_text):
+        office = True
+    relocate = bool(_RELOCATE_RE.search(full_text)) and not _NO_RELOCATE_RE.search(full_text)
+    return office, relocate
 
 
 def derive_tags(title: str, description: str) -> list[str]:

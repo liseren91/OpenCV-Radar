@@ -3,7 +3,7 @@
 // (first element is a legal notice object, not a job). No search parameter —
 // relevance is enforced by the central title filter in fetch-jobs.mjs.
 
-import { stableId, stripHtml, toDateOnly, fetchJSON, deriveTags } from './util.mjs';
+import { stableId, stripHtml, toDateOnly, fetchJSON, deriveTags, deriveLocationFlags } from './util.mjs';
 
 export const name = 'remoteok';
 export const requiresEnv = [];
@@ -23,12 +23,17 @@ export async function fetchJobs() {
 
     const title = j.position || j.title;
     const description = stripHtml(j.description).slice(0, 5000);
+    const location = j.location || 'Remote';
+    const remote = true; // RemoteOK is remote-only
+    const { office, relocate } = deriveLocationFlags({ title, description, location, remote });
     jobs.push({
       id: stableId(name, j.url),
       title,
       company: j.company || '—',
-      location: j.location || 'Remote',
-      remote: true, // RemoteOK is remote-only
+      location,
+      remote,
+      office,
+      relocate,
       url: j.url,
       source: name,
       posted_at: toDateOnly(j.date),

@@ -143,18 +143,23 @@ async function fetchRemotive(queries) {
     if (!res.ok) throw new Error(`Remotive HTTP ${res.status}`);
     const data = await res.json();
     for (const j of data.jobs || []) {
+      const location = j.candidate_required_location || 'Remote';
+      const description = stripHtml(j.description).slice(0, DESCRIPTION_CAP);
+      const { office, relocate } = deriveLocationFlags({ title: j.title, description, location, remote: true });
       jobs.push({
         id: `p-remotive-${tinyHash(j.url)}`,
         title: j.title,
         company: j.company_name,
-        location: j.candidate_required_location || 'Remote',
+        location,
         remote: true,
+        office,
+        relocate,
         url: j.url,
         source: 'remotive',
         personal: true,
         posted_at: toDateOnly(j.publication_date),
         salary: null,
-        description: stripHtml(j.description).slice(0, DESCRIPTION_CAP),
+        description,
         tags: [j.category].filter(Boolean),
       });
     }
@@ -172,12 +177,17 @@ async function fetchHH(queries) {
     const data = await res.json();
     for (const j of data.items || []) {
       if (!j.alternate_url) continue;
+      const description = stripHtml([j.snippet?.responsibility, j.snippet?.requirement].filter(Boolean).join('\n')).slice(0, DESCRIPTION_CAP);
+      const location = j.area?.name || 'Remote';
+      const { office, relocate } = deriveLocationFlags({ title: j.name, description, location, remote: true });
       jobs.push({
         id: `p-hh-${tinyHash(j.alternate_url)}`,
         title: j.name,
         company: j.employer?.name || '—',
-        location: j.area?.name || 'Remote',
+        location,
         remote: true,
+        office,
+        relocate,
         url: j.alternate_url,
         source: 'hh',
         personal: true,
@@ -188,7 +198,7 @@ async function fetchHH(queries) {
           currency: (j.salary.currency || 'RUR').replace('RUR', 'RUB'),
           source: 'hh',
         } : null,
-        description: stripHtml([j.snippet?.responsibility, j.snippet?.requirement].filter(Boolean).join('\n')).slice(0, DESCRIPTION_CAP),
+        description,
         tags: (j.professional_roles || []).map((r) => r.name),
       });
     }
@@ -206,12 +216,18 @@ async function fetchRemoteOK() {
   const jobs = [];
   for (const j of Array.isArray(data) ? data : []) {
     if (!j || !j.id || !(j.position || j.title) || !j.url) continue; // first element is a legal notice
+    const title = j.position || j.title;
+    const description = stripHtml(j.description).slice(0, DESCRIPTION_CAP);
+    const location = j.location || 'Remote';
+    const { office, relocate } = deriveLocationFlags({ title, description, location, remote: true });
     jobs.push({
       id: `p-remoteok-${tinyHash(j.url)}`,
-      title: j.position || j.title,
+      title,
       company: j.company || '—',
-      location: j.location || 'Remote',
+      location,
       remote: true,
+      office,
+      relocate,
       url: j.url,
       source: 'remoteok',
       personal: true,
@@ -222,7 +238,7 @@ async function fetchRemoteOK() {
         currency: 'USD',
         source: 'remoteok',
       } : null,
-      description: stripHtml(j.description).slice(0, DESCRIPTION_CAP),
+      description,
       tags: (j.tags || []).slice(0, 5),
     });
   }
@@ -237,18 +253,24 @@ async function fetchArbeitnow() {
     const data = await res.json();
     for (const j of data.data || []) {
       if (!j.url) continue;
+      const description = stripHtml(j.description).slice(0, DESCRIPTION_CAP);
+      const location = j.location || (j.remote ? 'Remote' : '—');
+      const remote = !!j.remote;
+      const { office, relocate } = deriveLocationFlags({ title: j.title, description, location, remote });
       jobs.push({
         id: `p-arbeitnow-${tinyHash(j.url)}`,
         title: j.title,
         company: j.company_name || '—',
-        location: j.location || (j.remote ? 'Remote' : '—'),
-        remote: !!j.remote,
+        location,
+        remote,
+        office,
+        relocate,
         url: j.url,
         source: 'arbeitnow',
         personal: true,
         posted_at: j.created_at ? new Date(j.created_at * 1000).toISOString().slice(0, 10) : null,
         salary: null,
-        description: stripHtml(j.description).slice(0, DESCRIPTION_CAP),
+        description,
         tags: (j.tags || []).slice(0, 5),
       });
     }
@@ -258,6 +280,59 @@ async function fetchArbeitnow() {
 }
 
 // ---------- Small helpers (browser twins of scripts/sources/util.mjs) ----------
+
+// Three independent location flags — see scripts/sources/util.mjs for the canonical
+// version and prose. Kept in sync by hand; the browser side cannot import Node code.
+const REMOTE_META = new Set([
+  'remote', 'anywhere', 'worldwide', 'global', 'distributed',
+  'home', 'wfh', 'fully', 'only', 'first', 'friendly',
+  'position', 'location', 'based', 'across', 'within',
+]);
+const REGION_TOKENS = new Set([
+  'eu', 'europe', 'european', 'union', 'us', 'usa', 'united', 'states',
+  'america', 'americas', 'emea', 'apac', 'latam', 'asia', 'africa',
+  'oceania', 'pacific', 'cet', 'cest', 'gmt', 'utc', 'est', 'pst',
+  'timezone', 'tz', 'time', 'zone',
+  'north', 'south', 'east', 'west', 'central', 'latin',
+]);
+const HYBRID_RE = /\b(hybrid|on[-\s]?site|onsite|in[-\s]?office|in[-\s]?person)\b/i;
+const RELOCATE_RE = /relocat\w+|relo[-\s]?package|visa\s+sponsorship|sponsor\s+(?:your|the|a)?\s*visas?|we\s+(?:will\s+)?sponsor\s+visas?|work[-\s]?permit\s+(?:assistance|sponsorship|support)|релок\w+|переезд\w*|визов\w+\s+поддержк\w+|оплат\w+\s+релок\w+|помощь\s+с\s+переездом/i;
+const NO_RELOCATE_RE = /no\s+relocation|no\s+visa\s+sponsorship|cannot\s+sponsor|unable\s+to\s+sponsor|does\s+not\s+(?:offer\s+)?(?:relocation|sponsor)|we\s+do\s+not\s+sponsor|без\s+релокации|релокация\s+не\s+предоставляется/i;
+
+/** Twin of util.mjs::deriveLocationFlags. Returns {office, relocate}; `remote` is passed in. */
+export function deriveLocationFlags({ title = '', description = '', location = '', remote = false } = {}) {
+  const fullText = `${title}\n${description}`;
+  const loc = String(location || '').trim();
+  let office;
+  if (!loc || loc === '—' || loc === '-') {
+    office = !remote;
+  } else {
+    const remainder = loc.toLowerCase()
+      .split(/[^a-zа-яё0-9]+/)
+      .filter((w) => w.length >= 2 && !REMOTE_META.has(w) && !REGION_TOKENS.has(w))
+      .join('');
+    office = remainder.length > 0;
+  }
+  if (!office && HYBRID_RE.test(fullText)) office = true;
+  const relocate = RELOCATE_RE.test(fullText) && !NO_RELOCATE_RE.test(fullText);
+  return { office, relocate };
+}
+
+/** Back-fill office/relocate for jobs from a pre-flag pool (legacy jobs.json on
+ *  forks that haven't re-fetched yet). Mutates and returns the job for chaining. */
+export function ensureLocationFlags(job) {
+  if (typeof job.office !== 'boolean' || typeof job.relocate !== 'boolean') {
+    const flags = deriveLocationFlags({
+      title: job.title,
+      description: job.description,
+      location: job.location,
+      remote: !!job.remote,
+    });
+    if (typeof job.office !== 'boolean') job.office = flags.office;
+    if (typeof job.relocate !== 'boolean') job.relocate = flags.relocate;
+  }
+  return job;
+}
 
 function norm(s) {
   return String(s || '').toLowerCase().replace(/[^a-zа-яё0-9]+/gi, ' ').trim();

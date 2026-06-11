@@ -2,7 +2,7 @@
 // Docs: https://www.arbeitnow.com/api/job-board-api (paginated, no search param —
 // relevance is enforced by the central title filter in fetch-jobs.mjs).
 
-import { stableId, stripHtml, fetchJSON, deriveTags } from './util.mjs';
+import { stableId, stripHtml, fetchJSON, deriveTags, deriveLocationFlags } from './util.mjs';
 
 export const name = 'arbeitnow';
 export const requiresEnv = [];
@@ -25,12 +25,17 @@ export async function fetchJobs() {
       seen.add(j.url);
 
       const description = stripHtml(j.description).slice(0, 5000);
+      const location = j.location || (j.remote ? 'Remote' : '—');
+      const remote = !!j.remote;
+      const { office, relocate } = deriveLocationFlags({ title: j.title, description, location, remote });
       jobs.push({
         id: stableId(name, j.url),
         title: j.title,
         company: j.company_name || '—',
-        location: j.location || (j.remote ? 'Remote' : '—'),
-        remote: !!j.remote,
+        location,
+        remote,
+        office,
+        relocate,
         url: j.url,
         source: name,
         posted_at: j.created_at ? new Date(j.created_at * 1000).toISOString().slice(0, 10) : null,

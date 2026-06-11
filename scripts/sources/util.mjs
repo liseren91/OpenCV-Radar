@@ -88,6 +88,92 @@ export function deriveTags(title, description, extra = []) {
   return [...tags];
 }
 
+/** Derive {office, relocate} flags for a posting.
+ *
+ * `remote` is already determined by each adapter (sources tell us directly).
+ * `office`   — is physical presence at a workplace expected? Pure remote-from-anywhere
+ *              postings → false; hybrid / on-site → true. Independent from `remote`:
+ *              a hybrid role is `remote: true` AND `office: true`.
+ * `relocate` — does the posting offer visa sponsorship or relocation help?
+ *              Positive signals must be present AND not negated ("no sponsorship").
+ *
+ * All three flags are independent. They drive the geo filter in the dashboard:
+ * Belgrade-based user wants Remote (works from where she is) OR Office in her city
+ * OR Office elsewhere WITH Relocate (they help her move).
+ */
+export function deriveLocationFlags({ title = '', description = '', location = '', remote = false } = {}) {
+  const fullText = `${title}\n${description}`;
+  return {
+    office: detectOffice(location, fullText, remote),
+    relocate: detectRelocate(fullText),
+  };
+}
+
+// Tokens that, alone, mean "remote/anywhere" — not a specific workplace.
+const REMOTE_META = new Set([
+  'remote', 'anywhere', 'worldwide', 'global', 'distributed',
+  'home', 'wfh', 'fully', 'only', 'first', 'friendly',
+  'position', 'location', 'based', 'across', 'within',
+]);
+// Region-only tokens — stripping these does NOT make a location "an office".
+// "Remote, EU" / "Remote — Europe" are still remote-only.
+const REGION_TOKENS = new Set([
+  'eu', 'europe', 'european', 'union', 'us', 'usa', 'united', 'states',
+  'america', 'americas', 'emea', 'apac', 'latam', 'asia', 'africa',
+  'oceania', 'pacific', 'cet', 'cest', 'gmt', 'utc', 'est', 'pst',
+  'timezone', 'tz', 'time', 'zone',
+  'north', 'south', 'east', 'west', 'central', 'latin',
+]);
+// Hybrid / explicit-onsite phrasing in the posting body forces office:true.
+const HYBRID_RE = /\b(hybrid|on[-\s]?site|onsite|in[-\s]?office|in[-\s]?person)\b/i;
+
+function detectOffice(location, fullText, remote) {
+  const loc = String(location || '').trim();
+  let office;
+  if (!loc || loc === '—' || loc === '-') {
+    office = !remote; // no location info → on-site is the default for non-remote
+  } else {
+    const remainder = loc.toLowerCase()
+      .split(/[^a-zа-яё0-9]+/)
+      .filter((w) => w.length >= 2 && !REMOTE_META.has(w) && !REGION_TOKENS.has(w))
+      .join('');
+    office = remainder.length > 0;
+  }
+  if (!office && HYBRID_RE.test(fullText)) office = true;
+  return office;
+}
+
+// Positive sponsorship / relocation signals (EN + RU).
+const RELOCATE_RE = new RegExp([
+  'relocat\\w+',                          // relocation / relocate / relocating
+  'relo[-\\s]?package',
+  'visa\\s+sponsorship',
+  'sponsor\\s+(?:your|the|a)?\\s*visas?',
+  'we\\s+(?:will\\s+)?sponsor\\s+visas?',
+  'work[-\\s]?permit\\s+(?:assistance|sponsorship|support)',
+  'релок\\w+',                            // релокация / релокейт
+  'переезд\\w*',
+  'визов\\w+\\s+поддержк\\w+',           // визовая поддержка
+  'оплат\\w+\\s+релок\\w+',
+  'помощь\\s+с\\s+переездом',
+].join('|'), 'i');
+
+// Negations that veto a positive match nearby.
+const NO_RELOCATE_RE = new RegExp([
+  'no\\s+relocation',
+  'no\\s+visa\\s+sponsorship',
+  'cannot\\s+sponsor',
+  'unable\\s+to\\s+sponsor',
+  'does\\s+not\\s+(?:offer\\s+)?(?:relocation|sponsor)',
+  'we\\s+do\\s+not\\s+sponsor',
+  'без\\s+релокации',
+  'релокация\\s+не\\s+предоставляется',
+].join('|'), 'i');
+
+function detectRelocate(fullText) {
+  return RELOCATE_RE.test(fullText) && !NO_RELOCATE_RE.test(fullText);
+}
+
 /** True if the title matches at least one query: every significant word of the
  * query appears in the title as a whole word (case-insensitive). Protects the
  * pool from full-text search noise — e.g. Remotive returns sales jobs for

@@ -3,7 +3,7 @@
 // as ADZUNA_APP_ID / ADZUNA_APP_KEY. Adapter is skipped gracefully without them.
 // Bonus: Adzuna provides salary data (salary_min/salary_max).
 
-import { stableId, stripHtml, toDateOnly, fetchJSON, deriveTags } from './util.mjs';
+import { stableId, stripHtml, toDateOnly, fetchJSON, deriveTags, deriveLocationFlags } from './util.mjs';
 
 export const name = 'adzuna';
 export const requiresEnv = ['ADZUNA_APP_ID', 'ADZUNA_APP_KEY'];
@@ -48,14 +48,18 @@ export async function fetchJobs(config) {
 
         const description = stripHtml(j.description).slice(0, 5000);
         const location = j.location?.display_name || country.toUpperCase();
-        const remote = /remote/i.test(`${j.title} ${description} ${location}`);
+        const title = j.title?.replace(/<[^>]+>/g, '') || 'Untitled';
+        const remote = /remote/i.test(`${title} ${description} ${location}`);
+        const { office, relocate } = deriveLocationFlags({ title, description, location, remote });
 
         jobs.push({
           id: stableId(name, jobUrl),
-          title: j.title?.replace(/<[^>]+>/g, '') || 'Untitled',
+          title,
           company: j.company?.display_name || '—',
           location,
           remote,
+          office,
+          relocate,
           url: jobUrl,
           source: name,
           posted_at: toDateOnly(j.created),
