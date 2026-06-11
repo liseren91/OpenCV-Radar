@@ -8,3 +8,9 @@ dateparser>=1.2
 price-parser>=0.3.4
 
 pandas>=2.0
+
+# Source registry (Phase 1/2 sources): HTTP + HTML/RSS parsing
+requests>=2.31
+beautifulsoup4>=4.12
+lxml>=5.0
+feedparser>=6.0
