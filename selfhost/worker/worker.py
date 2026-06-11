@@ -4,9 +4,11 @@
 Loops forever:
   1. Runs the same Node API adapters as the hosted version (scripts/fetch-jobs.mjs)
      -> writes data/jobs.json with Remotive / Adzuna / hh.ru jobs.
-  2. Runs JobSpy scrapers (LinkedIn / Indeed / Glassdoor / ...) for your queries
-     and merges the results into the same data/jobs.json.
-  3. Sleeps FETCH_INTERVAL_HOURS and repeats.
+  2. Runs the localhost-only source registry (sources/*.py): extra API / RSS / HTML
+     sources (Working Nomads, Jooble, Workable, Habr Career, Poslovi, …).
+  3. Runs JobSpy scrapers (LinkedIn / Indeed / Glassdoor / ...) for your queries.
+  4. Merges everything into data/jobs.json (central title filter + dedupe).
+  5. Sleeps FETCH_INTERVAL_HOURS and repeats.
 
 Scraping happens on YOUR machine with YOUR IP, under your responsibility.
 """

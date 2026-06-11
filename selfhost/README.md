@@ -19,13 +19,49 @@ docker compose up
 
 1. **API sources** — runs the same zero-dependency Node pipeline as the hosted version
    (`scripts/fetch-jobs.mjs`: Remotive, Adzuna*, hh.ru) → writes `data/jobs.json`.
-2. **Scrapers** — runs JobSpy for each of your `JOB_QUERIES` against `JOBSPY_SITES`,
+2. **Source registry** — runs the localhost-only Python sources in
+   [`worker/sources/`](worker/sources/): extra API / RSS / HTML boards (see the table
+   below). Each is isolated — one broken source is logged and skipped, never killing the cycle.
+3. **Scrapers** — runs JobSpy for each of your `JOB_QUERIES` against `JOBSPY_SITES`,
    normalizes results (dates via [dateparser](https://github.com/scrapinghub/dateparser),
    salary text via [price-parser](https://github.com/scrapinghub/price-parser)) and merges
-   them into the same `data/jobs.json`, deduplicating against API results.
-3. Nginx serves the repo as static files — the frontend picks up the fresh pool on reload.
+   the registry + scraper results into the same `data/jobs.json` (central title filter +
+   cross-source dedupe against the API results).
+4. Nginx serves the repo as static files — the frontend picks up the fresh pool on reload.
 
 \* Adzuna needs free keys in `.env` (`ADZUNA_APP_ID`/`ADZUNA_APP_KEY`); skipped without them.
+
+## Source registry (localhost only)
+
+These sources scrape on **your** machine, under **your** IP — they are deliberately
+excluded from the hosted version's no-scraping posture. All are enabled by default; control
+them with `SOURCES_ENABLED` (whitelist) / `SOURCES_DISABLED` (blacklist) in `.env`.
+
+| Source | Type | Env needed | Notes |
+|---|---|---|---|
+| `working_nomads` | JSON API | — | remote jobs (full feed, title-filtered) |
+| `jooble` | API | `JOOBLE_API_KEY` | skipped without a free key |
+| `workable` | API | — | public job-board search |
+| `jobspresso` | RSS | — | remote |
+| `nodesk` | HTML | — | remote |
+| `habr_career` | HTML | — | RU (career.habr.com) |
+| `geekjob` | HTML | — | RU (geekjob.ru) |
+| `poslovi` | HTML | — | Serbia (poslovi.infostud.com) |
+| `helloworld` | HTML | — | Serbia, IT (helloworld.rs) |
+| `startit` | RSS | — | Serbia — ⚠️ legacy feed is stale; live board is AJAX-only, so it usually yields no *fresh* jobs |
+| `hubstaff` | HTML (Rails UJS) | — | freelance-leaning remote |
+| `justremote` | embedded JSON | — | remote (parses inlined Redux state) |
+| `virtual_vocations` | embedded JSON | — | remote; company hidden behind paywall (shown as “—”) |
+| LinkedIn | JobSpy | — | enable via `JOBSPY_SITES=linkedin` (no registry source) |
+
+**Dropped during build:** `skipthedrive` — RSS is disabled site-wide and the content is blog
+articles, not parseable listings. Wellfound and workatastartup (YC) were out of scope (anti-bot,
+require a headless browser).
+
+Search uses your English `JOB_QUERIES`. Each source returns the shared job schema
+(`worker/normalize.py`), so the dashboard treats registry jobs like any other source.
+Writing a new source: drop a module in `worker/sources/` exposing `NAME`, `REQUIRES_ENV`,
+`fetch(config) -> list[dict]` — the registry auto-discovers it.
 
 ## Configuration (`.env`)
 
