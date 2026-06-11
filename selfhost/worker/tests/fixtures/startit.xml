@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"
+	xmlns:content="http://purl.org/rss/1.0/modules/content/"
+	xmlns:wfw="http://wellformedweb.org/CommentAPI/"
+	xmlns:dc="http://purl.org/dc/elements/1.1/"
+	xmlns:atom="http://www.w3.org/2005/Atom"
+	xmlns:sy="http://purl.org/rss/1.0/modules/syndication/"
+	xmlns:slash="http://purl.org/rss/1.0/modules/slash/"
+	>
+
+<channel>
+	<title>Startit Poslovi</title>
+	<atom:link href="https://startit.rs/startit-poslovi/feed/" rel="self" type="application/rss+xml" />
+	<link>https://startit.rs/startit-poslovi</link>
+	<description>start·it je projekat organizacije SEE ICT, pokrenut sa ciljem da se unaprede kapaciteti lokalne zajednice da pokreće inovativne i uspešne preduzetničke poduhvate.</description>
+	<lastBuildDate>Sun, 03 May 2026 10:44:49 +0000</lastBuildDate>
+	<language>en-US</language>
+	<sy:updatePeriod>
+	hourly	</sy:updatePeriod>
+	<sy:updateFrequency>
+	1	</sy:updateFrequency>
+	
+	<item>
+		<title>Senior React Developer</title>
+		<link>https://startit.rs/startit-poslovi/senior-react-developer-merkle/</link>
+		
+		<dc:creator><![CDATA[Tanja Marin]]></dc:creator>
+		<pubDate>Wed, 13 Oct 2021 17:02:52 +0000</pubDate>
+				<category><![CDATA[Tehnologija]]></category>
+		<category><![CDATA[Beograd]]></category>
+		<category><![CDATA[ecmascript]]></category>
+		<category><![CDATA[flux]]></category>
+		<category><![CDATA[frontend]]></category>
+		<category><![CDATA[iz kancelarije]]></category>
+		<category><![CDATA[javascript]]></category>
+		<category><![CDATA[js]]></category>
+		<category><![CDATA[medior]]></category>
+		<category><![CDATA[Merkle]]></category>
+		<category><![CDATA[programiranje]]></category>
+		<category><![CDATA[react]]></category>
+		<category><![CDATA[redux]]></category>
+		<category><![CDATA[restful APIs]]></category>
+		<category><![CDATA[senior]]></category>
+		<category><![CDATA[typescript]]></category>
+		<category><![CDATA[usluzno]]></category>
+		<guid isPermaLink="false">https://startit.rs/poslovi/?p=302394</guid>
+
+					<description><![CDATA[Company Description We Dream. We Do. We Deliver. As a full-service, data-driven customer experience transformation, we partner with Top 500 companies in the DACH region and in Eastern Europe. Originally from Switzerland, Merkle DACH was created out of a merger Namics and Isobar - two leading full-service digital agencies. Our 1200+ digital enthusiasts are innovating the way brands]]></description>
+		
+		
+		
+			</item>
+		<item>
+		<title>PHP Developer</title>
+		<link>https://startit.rs/startit-poslovi/php-developer-intens/</link>
+					<comments>https://startit.rs/startit-poslovi/php-developer-intens/#respond</comments>
+		
+		<dc:creator><![CDATA[Tanja Mladenović]]></dc:creator>
+		<pubDate>Wed, 13 Oct 2021 09:00:04 +0000</pubDate>
+				<category><![CDATA[Uncategorized]]></category>
+		<category><![CDATA[css]]></category>
+		<category><![CDATA[fleksibilno]]></category>
+		<category><![CDATA[html]]></category>
+		<category><![CDATA[Intens]]></category>
+		<category><![CDATA[javascript]]></category>
+		<category><![CDATA[jquery]]></category>
+		<category><![CDATA[medior]]></category>
+		<category><![CDATA[mysql]]></category>
+		<category><![CDATA[novi sad]]></category>
+		<category><![CDATA[oop]]></category>
+		<category><![CDATA[php]]></category>
+		<category><![CDATA[postgresql]]></category>
+		<category><![CDATA[programiranje]]></category>
+		<category><![CDATA[remote]]></category>
+		<category><![CDATA[usluzno]]></category>
+		<guid isPermaLink="false">https://startit.rs/poslovi/?p=302341</guid>
+
+					<description><![CDATA[INTENS is a software development company based in Novi Sad specializing in designing and developing bespoke solutions and applications. Intens is passionate about the projects it undertakes as it confidently delivers excellence in each and every project and has been doing so for over 20 years. Our teams are engaged in software product development and]]></description>
+		
+					<wfw:commentRss>https://startit.rs/startit-poslovi/php-developer-intens/feed/</wfw:commentRss>
+			<slash:comments>0</slash:comments>
+		
+		
+			</item>
+	</channel>
+</rss>
