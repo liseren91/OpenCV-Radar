@@ -24,6 +24,7 @@ from normalize import (
     stable_id, strip_html, parse_date,
     derive_location_flags, derive_tags, title_matches_queries,
 )
+from sources import load_sources
 
 ROOT = Path(__file__).resolve().parents[2]  # repo root (mounted at /app)
 JOBS_FILE = ROOT / "data" / "jobs.json"
@@ -125,8 +126,6 @@ def run_scrapers() -> list[dict]:
                 continue
             source = f"jobspy-{row.get('site', 'scrape')}"
             title = str(row.get("title") or "Untitled")
-            if TITLE_FILTER and not title_matches_queries(title, QUERIES):
-                continue
             description = strip_html(str(row.get("description") or ""))[:5000]
             is_remote = bool(row.get("is_remote")) or "remote" in f"{title} {row.get('location', '')}".lower()
             location = str(row.get("location") or LOCATION)
@@ -146,6 +145,31 @@ def run_scrapers() -> list[dict]:
                 "description": description,
                 "tags": derive_tags(title, description),
             })
+    return jobs
+
+
+def run_registry_sources() -> list[dict]:
+    """Run every enabled source module and collect normalized jobs.
+    One broken source must never kill the cycle."""
+    config = {
+        "queries": QUERIES,
+        "location": LOCATION,
+        "fresh_days": FRESH_DAYS,
+        "results_wanted": RESULTS_WANTED,
+    }
+    jobs: list[dict] = []
+    for module in load_sources():
+        missing = [v for v in getattr(module, "REQUIRES_ENV", []) if not os.getenv(v)]
+        if missing:
+            log(f"  source {module.NAME}: SKIPPED (missing env: {', '.join(missing)})")
+            continue
+        try:
+            t0 = time.time()
+            found = module.fetch(config)
+            jobs.extend(found)
+            log(f"  source {module.NAME}: {len(found)} jobs ({time.time() - t0:.1f}s)")
+        except Exception as exc:  # noqa: BLE001 — isolate per-source failures
+            log(f"  source {module.NAME} FAILED: {exc}")
     return jobs
 
 
@@ -180,7 +204,7 @@ def merge_into_pool(scraped: list[dict]) -> None:
     payload["jobs"] = merged
     payload["count"] = len(merged)
     payload["updated_at"] = datetime.now(timezone.utc).isoformat()
-    payload.setdefault("sources", {})["jobspy"] = {"fetched": len(scraped), "added": added}
+    payload.setdefault("sources", {})["selfhost_scrapers"] = {"fetched": len(scraped), "added": added}
 
     JOBS_FILE.parent.mkdir(parents=True, exist_ok=True)
     JOBS_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -194,9 +218,16 @@ def main() -> None:
     while True:
         log("Cycle start: API sources (shared Node pipeline)")
         run_api_sources()
+        log("Cycle: registry sources (API/RSS/HTML)")
+        registry_jobs = run_registry_sources()
         log("Cycle: scrapers (JobSpy)")
         scraped = run_scrapers()
-        merge_into_pool(scraped)
+        collected = registry_jobs + scraped
+        if TITLE_FILTER:
+            before = len(collected)
+            collected = [j for j in collected if title_matches_queries(j["title"], QUERIES)]
+            log(f"  title filter: kept {len(collected)}/{before}")
+        merge_into_pool(collected)
         log(f"Cycle done. Sleeping {INTERVAL_HOURS}h…")
         try:
             time.sleep(INTERVAL_HOURS * 3600)
