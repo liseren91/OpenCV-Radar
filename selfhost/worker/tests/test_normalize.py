@@ -20,9 +20,12 @@ def test_strip_html_collapses_tags_and_whitespace():
 
 
 def test_parse_date_handles_iso_and_relative():
+    from datetime import datetime
     assert parse_date("2026-06-01") == "2026-06-01"
     assert parse_date("2026-06-01T10:00:00Z") == "2026-06-01"
+    assert parse_date(datetime(2026, 6, 1, 10, 0, 0)) == "2026-06-01"  # JobSpy returns datetimes
     assert parse_date(None) is None
+    assert parse_date("") is None
 
 
 def test_derive_location_flags_remote_only_is_not_office():

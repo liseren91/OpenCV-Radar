@@ -34,7 +34,7 @@ def parse_date(value) -> str | None:
         import dateparser
         parsed = dateparser.parse(s)
         return parsed.strftime("%Y-%m-%d") if parsed else None
-    except Exception:
+    except Exception:  # noqa: BLE001 — unparseable date or missing dateparser → unknown
         return None
 
 
@@ -102,6 +102,9 @@ def derive_tags(title: str, description: str) -> list[str]:
 
 
 def title_matches_queries(title: str, queries: list[str]) -> bool:
+    """True if at least one query matches: every significant word (len>=2) of the
+    query appears in the title as a whole word. Same guard as the Node pipeline —
+    keeps full-text search noise (jobs that merely mention a query) out of the pool."""
     t = (title or "").lower()
     for q in queries:
         words = [w for w in re.split(r"[^a-zа-яё0-9+#.]+", q.lower()) if len(w) >= 2]
