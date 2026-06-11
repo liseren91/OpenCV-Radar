@@ -22,3 +22,13 @@ def test_query_filter_excludes_unrelated(fixture_text):
     raw = json.loads(fixture_text("working_nomads.json"))
     jobs = working_nomads._parse(raw, queries=["zzzznomatch"])
     assert jobs == []
+
+
+def test_empty_queries_returns_every_parseable_row(fixture_text):
+    raw = json.loads(fixture_text("working_nomads.json"))
+    parseable = sum(
+        1 for r in raw
+        if str(r.get("title") or "").strip() and str(r.get("url") or "").strip()
+    )
+    jobs = working_nomads._parse(raw, queries=[])
+    assert len(jobs) == parseable

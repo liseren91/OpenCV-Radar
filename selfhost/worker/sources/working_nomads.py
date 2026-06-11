@@ -1,5 +1,6 @@
 """Working Nomads — public JSON feed of remote jobs.
-Endpoint returns the full feed; we filter client-side by query in title/description.
+Endpoint returns the full feed; we filter client-side by a whole-word title match
+(the same predicate the central worker filter uses).
 """
 
 from normalize import (
@@ -30,9 +31,10 @@ def _parse(rows, queries):
         location = str(r.get("location") or "Remote").strip() or "Remote"
         remote = True
         office, relocate = derive_location_flags(title, description, location, remote)
-        haystack = f"{title} {description}"
-        if queries and not (title_matches_queries(title, queries)
-                            or any(q.lower() in haystack.lower() for q in queries)):
+        # Volume filter for this full-feed endpoint: whole-word title match only.
+        # Description substring matching is deliberately avoided — it readmits the
+        # full-text noise (jobs that merely *mention* a query) the title guard removes.
+        if queries and not title_matches_queries(title, queries):
             continue
         jobs.append({
             "id": stable_id(NAME, url),
@@ -47,6 +49,8 @@ def _parse(rows, queries):
             "posted_at": parse_date(r.get("pub_date")),
             "salary": None,
             "description": description,
+            # derive_tags (title/description) for cross-source consistency;
+            # the API's own `tags`/`category_name` fields are intentionally ignored.
             "tags": derive_tags(title, description),
         })
     return jobs
