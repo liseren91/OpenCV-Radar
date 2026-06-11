@@ -21,7 +21,6 @@ title_matches_queries — the query was applied at the HTTP level in fetch().
 
 from normalize import (
     stable_id, strip_html, parse_date, derive_location_flags, derive_tags,
-    title_matches_queries,
 )
 from .base import http_json
 
