@@ -113,3 +113,56 @@ def title_matches_queries(title: str, queries: list[str]) -> bool:
         ):
             return True
     return False
+
+
+# Currency keyword/symbol → ISO code, checked in order.
+_SALARY_CURRENCIES = [
+    (r"€|\beur\b", "EUR"),
+    (r"\brsd\b|\bдин\b|\bdin\b", "RSD"),
+    (r"\$|\busd\b", "USD"),
+    (r"£|\bgbp\b", "GBP"),
+    (r"₽|\bруб\b|\brub\b", "RUB"),
+]
+_SALARY_NUM_RE = re.compile(r"\d[\d .,]*\d|\d")
+
+
+def parse_salary_text(text, source: str, default_currency: str = "EUR") -> dict | None:
+    """Best-effort parse of a free-text salary into {min,max,currency,source} or None.
+
+    Handles European ("150.000,00"), spaced ("200 000") and "k" ("€60k") number
+    formats and ranges ("3000 - 5000"). Returns None when no amount >= 500 is found
+    (keeps the schema's salary as a dict-or-None — never a raw string)."""
+    if not text:
+        return None
+    t = str(text)
+    low = t.lower()
+    currency = default_currency
+    for pattern, code in _SALARY_CURRENCIES:
+        if re.search(pattern, low):
+            currency = code
+            break
+
+    amounts = []
+    for m in _SALARY_NUM_RE.finditer(t):
+        tok = m.group(0)
+        has_k = t[m.end():m.end() + 1].lower() == "k"
+        if "." in tok and "," in tok:               # 150.000,00 → 150000.00
+            num = tok.replace(" ", "").replace(".", "").replace(",", ".")
+        elif "," in tok:                            # 1,234 (thousands) or 12,5 (decimal)
+            num = re.sub(r",(?=\d{3}(\D|$))", "", tok).replace(",", ".").replace(" ", "")
+        else:                                       # 200 000 / 150.000 (dot thousands)
+            num = tok.replace(" ", "")
+            if re.search(r"\.\d{3}(\D|$)", num):
+                num = num.replace(".", "")
+        try:
+            val = float(num)
+        except ValueError:
+            continue
+        if has_k:
+            val *= 1000
+        if val >= 500:
+            amounts.append(int(val))
+
+    if not amounts:
+        return None
+    return {"min": min(amounts), "max": max(amounts), "currency": currency, "source": source}

@@ -5,7 +5,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # selfhost/worker 
 
 from normalize import (
     stable_id, strip_html, parse_date,
-    derive_location_flags, derive_tags, title_matches_queries,
+    derive_location_flags, derive_tags, title_matches_queries, parse_salary_text,
 )
 
 
@@ -53,3 +53,14 @@ def test_derive_tags_role_from_title_only():
 def test_title_matches_queries_requires_all_words():
     assert title_matches_queries("Senior Product Manager", ["product manager"]) is True
     assert title_matches_queries("Sales Executive", ["product manager"]) is False
+
+
+def test_parse_salary_text_returns_dict_or_none():
+    s = parse_salary_text("neto 150.000,00 - 400.000,00 RSD", "poslovi", default_currency="RSD")
+    assert s == {"min": 150000, "max": 400000, "currency": "RSD", "source": "poslovi"}
+    eur = parse_salary_text("€60k", "x", default_currency="EUR")
+    assert eur["currency"] == "EUR" and eur["min"] == 60000
+    rub = parse_salary_text("от 200 000 ₽", "geekjob", default_currency="RUB")
+    assert rub["currency"] == "RUB" and rub["min"] == 200000
+    assert parse_salary_text("", "x") is None
+    assert parse_salary_text("Competitive", "x") is None

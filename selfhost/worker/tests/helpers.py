@@ -16,5 +16,9 @@ def assert_valid_jobs(jobs, source_name=None):
         assert isinstance(j["relocate"], bool)
         assert isinstance(j["tags"], list)
         assert j["posted_at"] is None or len(j["posted_at"]) == 10
+        # salary is a structured dict or None — never a raw string.
+        assert j["salary"] is None or isinstance(j["salary"], dict), f"salary not dict/None: {j['salary']!r}"
+        if isinstance(j["salary"], dict):
+            assert {"min", "max", "currency"} <= set(j["salary"])
         if source_name:
             assert j["source"] == source_name

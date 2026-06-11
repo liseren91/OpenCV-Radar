@@ -15,6 +15,7 @@ from bs4 import BeautifulSoup
 
 from normalize import (
     stable_id, strip_html, parse_date, derive_location_flags, derive_tags,
+    parse_salary_text,
 )
 from .base import http_get
 
@@ -102,9 +103,9 @@ def _parse(html: str) -> list[dict]:
 
         # --- Salary ---
         salary_el = card.select_one(SELECTOR_SALARY)
-        salary = salary_el.get_text(strip=True) if salary_el else None
-        if salary == "":
-            salary = None
+        salary = parse_salary_text(
+            salary_el.get_text(strip=True), NAME, default_currency="RUB"
+        ) if salary_el else None
 
         # --- Date ---
         date_el = card.select_one(SELECTOR_DATE)

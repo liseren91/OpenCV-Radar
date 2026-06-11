@@ -8,7 +8,7 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 
 from normalize import (
-    stable_id, strip_html, derive_location_flags, derive_tags,
+    stable_id, strip_html, derive_location_flags, derive_tags, parse_salary_text,
 )
 from .base import http_get
 
@@ -142,7 +142,7 @@ def _parse(html: str) -> list[dict]:
         for span in card.find_all("span"):
             txt = span.get_text(strip=True)
             if re.search(r"RSD|EUR", txt):
-                salary = txt
+                salary = parse_salary_text(txt, NAME, default_currency="RSD")
                 break
 
         jobs.append({
