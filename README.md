@@ -1,5 +1,4 @@
-# 📡 Job Radar - DOWNLOAD FROM feat/selfhost-job-sources
-
+# 📡 Job Radar 
 **Deep candidate profile → daily job radar → CV tailoring. Free, open source, privacy-first.**
 
 A one-page CV physically cannot hold 5+ years of expertise. Job Radar extracts your *full* master profile through an adaptive AI interview, then uses it to rank fresh jobs daily and rewrite your CV for any posting — all in your browser, with **your own** LLM key.
