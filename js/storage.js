@@ -35,15 +35,10 @@ export const KEYS = {
 
 // ---------- Settings helpers ----------
 
-const DEFAULT_MODELS = {
-  openai: 'gpt-4o-mini',
-  anthropic: 'claude-3-5-haiku-latest',
-};
-
 export function getSettings() {
   return ls.get(KEYS.SETTINGS, {
-    provider: null, // 'openai' | 'anthropic' — user picks during onboarding
-    model: null,
+    provider: null, // 'openai' | 'anthropic' — user picks in Settings
+    model: null,    // dynamic: fetched from the provider with the user's key
     apiKeys: {},
   });
 }
@@ -57,13 +52,10 @@ export function getActiveKey() {
   return s.provider ? (s.apiKeys?.[s.provider] || null) : null;
 }
 
+// Returns the user-chosen model id, or null if none has been picked yet.
+// The provider layer falls back to its DEFAULT_MODEL if this is null.
 export function getActiveModel() {
-  const s = getSettings();
-  return s.model || (s.provider ? DEFAULT_MODELS[s.provider] : null);
-}
-
-export function defaultModelFor(provider) {
-  return DEFAULT_MODELS[provider];
+  return getSettings().model || null;
 }
 
 export function deleteAllKeys() {
@@ -85,10 +77,55 @@ export function saveProfile(profile) {
   ls.set(KEYS.PROFILE_META, meta);
 }
 
+const PROFILE_PHOTO_KEY = 'profile-photo';
+const PHOTO_MAX_BYTES = 5 * 1024 * 1024;
+
+export async function getProfilePhoto() {
+  try {
+    return await idb.get('files', PROFILE_PHOTO_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export async function hasProfilePhoto() {
+  const stored = await getProfilePhoto();
+  return !!stored?.blob;
+}
+
+export async function saveProfilePhoto(file) {
+  if (!file?.type?.startsWith('image/')) {
+    throw new Error('Choose a photo file (JPEG, PNG or WebP).');
+  }
+  if (file.size > PHOTO_MAX_BYTES) {
+    throw new Error('Photo must be 5 MB or smaller.');
+  }
+  await idb.set('files', PROFILE_PHOTO_KEY, {
+    name: file.name,
+    type: file.type,
+    blob: file,
+    savedAt: new Date().toISOString(),
+  });
+  const meta = ls.get(KEYS.PROFILE_META, {});
+  meta.hasPhoto = true;
+  meta.updatedAt = new Date().toISOString();
+  ls.set(KEYS.PROFILE_META, meta);
+}
+
+export async function removeProfilePhoto() {
+  try {
+    await idb.remove('files', PROFILE_PHOTO_KEY);
+  } catch { /* best effort */ }
+  const meta = ls.get(KEYS.PROFILE_META, {});
+  delete meta.hasPhoto;
+  ls.set(KEYS.PROFILE_META, meta);
+}
+
 // ---------- IndexedDB ----------
 
 const DB_NAME = 'jobradar';
-const DB_VERSION = 1;
+// v2: repair empty v1 databases (stores missing → CV upload failed with NotFoundError).
+const DB_VERSION = 2;
 let dbPromise = null;
 
 function openDB() {

@@ -4,7 +4,10 @@
 import { el, toast } from '../app.js';
 import { chatJSON } from '../providers/index.js';
 import { fillPrompt } from '../prompts.js';
-import { getProfile, saveProfile, getSettings, idb, ls, KEYS } from '../storage.js';
+import {
+  getProfile, saveProfile, getSettings, getProfilePhoto, saveProfilePhoto,
+  idb, ls, KEYS,
+} from '../storage.js';
 
 // CDN libs, loaded lazily on first use so the app shell stays dependency-free.
 const PDFJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.6.82/pdf.min.mjs';
@@ -14,7 +17,8 @@ const MAMMOTH_URL = 'https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammot
 export async function renderOnboarding(root) {
   root.append(
     el('h1', {}, 'Your profile'),
-    el('p', { class: 'subtitle' }, 'Upload your CV to build a draft master profile, then refine it in the adaptive interview.'),
+    el('p', { class: 'subtitle' },
+      'Upload your CV to build a draft master profile (photo optional), then refine it in the adaptive interview.'),
   );
 
   const settings = getSettings();
@@ -24,14 +28,84 @@ export async function renderOnboarding(root) {
       ' — CV parsing uses your LLM.'));
   }
 
+  root.append(await photoCard(root));
+
   const existing = getProfile();
   if (existing) {
-    renderEditor(root, existing);
+    await renderEditor(root, existing);
     root.append(uploadCard(root, 'Replace profile from a new CV'));
   } else {
     root.append(uploadCard(root, 'Upload your CV (PDF or DOCX)'));
     renderImportExport(root, null);
   }
+}
+
+// ---------- Profile photo (optional) ----------
+
+function rerenderOnboarding() {
+  const app = document.getElementById('app');
+  app.innerHTML = '';
+  renderOnboarding(app);
+}
+
+async function photoCard(root) {
+  const stored = await getProfilePhoto();
+  const previewUrl = stored?.blob ? URL.createObjectURL(stored.blob) : null;
+
+  const fileInput = el('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp' });
+  const statusEl = el('p', { class: 'muted' });
+  const preview = el('div', { class: 'photo-preview' });
+
+  function setPreview(url) {
+    preview.innerHTML = '';
+    if (url) {
+      preview.append(el('img', { src: url, alt: 'Profile photo preview' }));
+    }
+  }
+  setPreview(previewUrl);
+
+  const zone = el('div', { class: 'dropzone photo-dropzone' },
+    el('div', { style: 'font-size:34px;' }, '📷'),
+    el('p', {}, stored ? 'Replace profile photo' : 'Upload profile photo'),
+    el('p', { class: 'muted' }, 'JPEG, PNG or WebP · max 5 MB · optional'),
+    fileInput,
+  );
+
+  async function handlePhoto(file) {
+    try {
+      await saveProfilePhoto(file);
+      toast('Profile photo saved.', 'success');
+      rerenderOnboarding();
+    } catch (err) {
+      toast(String(err.message || err), 'error', 7000);
+    }
+  }
+
+  zone.addEventListener('click', () => fileInput.click());
+  zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dragover'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+  zone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    zone.classList.remove('dragover');
+    if (e.dataTransfer.files[0]) handlePhoto(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) handlePhoto(fileInput.files[0]);
+  });
+
+  const card = el('div', { class: 'card' },
+    el('div', { style: 'display:flex; align-items:center; gap:12px;' },
+      el('h2', { style: 'margin:0;' }, 'Profile photo'),
+      el('span', { class: 'spacer' }),
+      stored ? el('span', { class: 'badge ok' }, 'Uploaded') : null,
+    ),
+    el('p', { class: 'muted' },
+      'Optional headshot for your profile. Stored only in your browser.'),
+    el('div', { class: 'photo-upload-row' }, preview, zone),
+    statusEl,
+  );
+
+  return card;
 }
 
 // ---------- Upload ----------
@@ -84,7 +158,10 @@ function uploadCard(root, title) {
     } catch (err) {
       console.error(err);
       statusEl.textContent = '';
-      toast(String(err.message || err), 'error', 8000);
+      const msg = err?.name === 'NotFoundError'
+        ? 'Browser storage is in a bad state. Open Settings → Danger zone → wipe data, reload, and try again.'
+        : String(err.message || err);
+      toast(msg, 'error', 8000);
     }
   }
 
@@ -131,10 +208,9 @@ async function extractDocx(file) {
 
 // ---------- Profile editor ----------
 
-function renderEditor(root, profile) {
+async function renderEditor(root, profile) {
   const meta = ls.get(KEYS.PROFILE_META, {});
   const completeness = meta.completeness ?? 35;
-
   const textarea = el('textarea', { spellcheck: 'false' });
   textarea.value = JSON.stringify(profile, null, 2);
 
@@ -149,6 +225,10 @@ function renderEditor(root, profile) {
     }
   });
 
+  const nextStep = meta.interviewDone
+    ? el('p', { class: 'muted' }, '✅ Interview completed. You can re-run it anytime to dig deeper.')
+    : el('p', { class: 'muted' }, '👉 Next step: ', el('a', { href: '#/interview' }, 'run the adaptive interview'), ' to unlock hidden expertise.');
+
   root.append(
     el('div', { class: 'card' },
       el('div', { style: 'display:flex; align-items:center; gap:12px;' },
@@ -157,9 +237,7 @@ function renderEditor(root, profile) {
         el('span', { class: 'muted' }, `Completeness ~${completeness}%`),
       ),
       el('div', { class: 'progress-wrap' }, el('div', { class: 'progress-bar', style: `width:${completeness}%` })),
-      meta.interviewDone
-        ? el('p', { class: 'muted' }, '✅ Interview completed. You can re-run it anytime to dig deeper.')
-        : el('p', { class: 'muted' }, '👉 Next step: ', el('a', { href: '#/interview' }, 'run the adaptive interview'), ' to unlock hidden expertise.'),
+      nextStep,
       el('div', { class: 'profile-editor' }, textarea),
       el('div', { style: 'display:flex; gap:10px; margin-top:12px;' }, saveBtn),
     ),

@@ -94,7 +94,14 @@ Rules of the road:
 
 ## Adding an LLM provider
 
-Create `js/providers/yourprovider.js` exporting `chat(messages, opts)`, `testKey(apiKey)` and `MODELS`, then register it in [js/providers/index.js](js/providers/index.js). The provider must support CORS for direct browser calls — if it doesn't, document that it is self-host-only.
+Create `js/providers/yourprovider.js` exporting:
+
+- `chat(messages, opts)` — main inference call.
+- `listModels(apiKey)` — fetch the list of chat-capable models the key has access to (used by the Settings screen to populate the model dropdown). Returns `Array<{ id, label }>`. A successful response also validates the key, so this doubles as a key check.
+- `testKey(apiKey)` — typically `() => listModels(apiKey).then(() => true)`.
+- `DEFAULT_MODEL` — a string used as a safe fallback when the user hasn't picked a model yet (e.g. for imported settings from another machine).
+
+Then register it in [js/providers/index.js](js/providers/index.js). The provider must support CORS for direct browser calls — if it doesn't, document that it is self-host-only.
 
 ## Code style
 

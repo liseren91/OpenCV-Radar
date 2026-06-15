@@ -1,8 +1,8 @@
 // app.js — hash router + shared UI helpers + Welcome/Settings screens.
 // Feature screens live in js/steps/*.js and register themselves via routes.
 
-import { getSettings, saveSettings, getProfile, deleteAllKeys, wipeEverything, defaultModelFor } from './storage.js';
-import { PROVIDERS, modelsFor, testKey } from './providers/index.js';
+import { getSettings, saveSettings, getProfile, deleteAllKeys, wipeEverything } from './storage.js';
+import { PROVIDERS, listModels, defaultModelFor } from './providers/index.js';
 import { renderOnboarding } from './steps/onboarding.js';
 import { renderInterview } from './steps/interview.js';
 import { renderDashboard } from './steps/dashboard.js';
@@ -130,35 +130,38 @@ function renderWelcome(root) {
 }
 
 // ---------- Settings screen ----------
+//
+// Flow:
+//   1. Pick provider.
+//   2. Paste API key.
+//   3. Click "Load available models" — we hit the provider's /v1/models endpoint
+//      with that key (same call validates the key for free).
+//   4. Pick a model from the dynamic list.
+//   5. Save.
+// If a key is already saved on mount, models auto-load so the user lands on
+// their previously chosen model without an extra click.
 
 function renderSettings(root) {
   const settings = getSettings();
 
   root.append(el('h1', {}, 'Settings'), el('p', { class: 'subtitle' }, 'LLM provider, model and your API key.'));
 
-  // --- Provider & key card ---
   const providerSel = el('select', {},
     el('option', { value: '' }, '— choose provider —'),
     ...PROVIDERS.map((p) => el('option', { value: p.id, ...(settings.provider === p.id ? { selected: '' } : {}) }, p.label)),
   );
 
-  const modelSel = el('select', {});
   const keyInput = el('input', { type: 'password', placeholder: 'sk-…', autocomplete: 'off' });
   const keyHelp = el('p', { class: 'muted' });
-  const statusEl = el('span', { class: 'key-status' });
 
-  function refreshProviderUI() {
-    const pid = providerSel.value;
-    modelSel.innerHTML = '';
-    if (!pid) { keyInput.value = ''; keyHelp.textContent = ''; updateStatus(); return; }
-    for (const m of modelsFor(pid)) {
-      modelSel.append(el('option', { value: m.id, ...(settings.provider === pid && settings.model === m.id ? { selected: '' } : {}) }, m.label));
-    }
-    keyInput.value = settings.apiKeys?.[pid] || '';
-    const meta = PROVIDERS.find((p) => p.id === pid);
-    keyHelp.innerHTML = `Get a key: <a href="${meta.keyUrl}" target="_blank" rel="noopener">${meta.keyUrl}</a>`;
-    updateStatus();
-  }
+  const modelSel = el('select', { disabled: '' },
+    el('option', { value: '' }, '— load models first —'),
+  );
+  const modelHint = el('p', { class: 'muted' }, 'Models appear after we check your key with the provider.');
+
+  const loadBtn = el('button', { class: 'btn btn-secondary btn-sm' }, 'Load available models');
+  const saveBtn = el('button', { class: 'btn', disabled: '' }, 'Save settings');
+  const statusEl = el('span', { class: 'key-status' });
 
   function updateStatus() {
     const pid = providerSel.value;
@@ -170,35 +173,109 @@ function renderSettings(root) {
     );
   }
 
-  providerSel.addEventListener('change', refreshProviderUI);
+  function setModelOptions(models, selectedId) {
+    modelSel.innerHTML = '';
+    if (!models.length) {
+      modelSel.append(el('option', { value: '' }, 'No chat-capable models available'));
+      modelSel.disabled = true;
+      saveBtn.disabled = true;
+      return;
+    }
+    const target = selectedId && models.some((m) => m.id === selectedId)
+      ? selectedId
+      : (defaultModelFor(providerSel.value) && models.some((m) => m.id === defaultModelFor(providerSel.value))
+        ? defaultModelFor(providerSel.value)
+        : models[0].id);
+    for (const m of models) {
+      modelSel.append(el('option', { value: m.id, ...(m.id === target ? { selected: '' } : {}) }, m.label));
+    }
+    modelSel.disabled = false;
+    saveBtn.disabled = false;
+  }
 
-  const testBtn = el('button', { class: 'btn btn-secondary btn-sm' }, 'Test key');
-  testBtn.addEventListener('click', async () => {
+  function resetModelOptions(reason) {
+    modelSel.innerHTML = '';
+    modelSel.append(el('option', { value: '' }, reason || '— load models first —'));
+    modelSel.disabled = true;
+    saveBtn.disabled = true;
+  }
+
+  async function loadModels({ silent = false } = {}) {
     const pid = providerSel.value;
     const key = keyInput.value.trim();
-    if (!pid || !key) return toast('Choose a provider and paste a key first.', 'error');
-    testBtn.disabled = true;
-    testBtn.innerHTML = '<span class="spinner"></span> Testing…';
+    if (!pid) {
+      if (!silent) toast('Choose a provider first.', 'error');
+      return;
+    }
+    if (!key) {
+      if (!silent) toast('Paste your API key first.', 'error');
+      return;
+    }
+    loadBtn.disabled = true;
+    loadBtn.innerHTML = '<span class="spinner"></span> Checking key & loading models…';
+    modelHint.textContent = 'Talking to ' + pid + '…';
     try {
-      await testKey(pid, key);
-      toast('Key works!', 'success');
+      const models = await listModels(pid, key);
+      const currentSettings = getSettings();
+      const preselect = currentSettings.provider === pid ? currentSettings.model : null;
+      setModelOptions(models, preselect);
+      modelHint.textContent = `${models.length} model${models.length === 1 ? '' : 's'} available for this key.`;
+      if (!silent) toast('Key works — pick a model and save.', 'success');
     } catch (err) {
-      toast(String(err.message || err), 'error', 7000);
+      resetModelOptions('— could not load —');
+      modelHint.textContent = '';
+      toast(String(err.message || err), 'error', 8000);
     } finally {
-      testBtn.disabled = false;
-      testBtn.textContent = 'Test key';
+      loadBtn.disabled = false;
+      loadBtn.textContent = 'Load available models';
+    }
+  }
+
+  function onProviderChange() {
+    const pid = providerSel.value;
+    resetModelOptions();
+    if (!pid) {
+      keyInput.value = '';
+      keyHelp.textContent = '';
+      modelHint.textContent = 'Choose a provider to begin.';
+      updateStatus();
+      return;
+    }
+    const meta = PROVIDERS.find((p) => p.id === pid);
+    keyHelp.innerHTML = `Get a key: <a href="${meta.keyUrl}" target="_blank" rel="noopener">${meta.keyUrl}</a>`;
+    keyInput.value = settings.apiKeys?.[pid] || '';
+    modelHint.textContent = keyInput.value
+      ? 'Loading models for your saved key…'
+      : 'Paste your key, then click "Load available models".';
+    updateStatus();
+    if (keyInput.value) loadModels({ silent: true });
+  }
+
+  // Typing/pasting a fresh key invalidates the previous model list — force the
+  // user to re-check so we never save a stale (key, model) pair.
+  keyInput.addEventListener('input', () => {
+    const pid = providerSel.value;
+    const savedKey = pid ? (settings.apiKeys?.[pid] || '') : '';
+    if (keyInput.value.trim() !== savedKey) {
+      resetModelOptions('— re-load models for this key —');
+      modelHint.textContent = 'Click "Load available models" to refresh the list.';
     }
   });
 
-  const saveBtn = el('button', { class: 'btn' }, 'Save settings');
+  providerSel.addEventListener('change', onProviderChange);
+  loadBtn.addEventListener('click', () => loadModels());
+
   saveBtn.addEventListener('click', () => {
     const pid = providerSel.value;
     if (!pid) return toast('Choose a provider.', 'error');
+    const model = modelSel.value;
+    if (!model) return toast('Load and pick a model first.', 'error');
+    const key = keyInput.value.trim();
+    if (!key) return toast('Paste your API key.', 'error');
     const s = getSettings();
     s.provider = pid;
-    s.model = modelSel.value || defaultModelFor(pid);
-    const key = keyInput.value.trim();
-    if (key) s.apiKeys = { ...s.apiKeys, [pid]: key };
+    s.model = model;
+    s.apiKeys = { ...s.apiKeys, [pid]: key };
     saveSettings(s);
     updateStatus();
     toast('Settings saved (in your browser only).', 'success');
@@ -208,6 +285,8 @@ function renderSettings(root) {
   deleteKeyBtn.addEventListener('click', () => {
     deleteAllKeys();
     keyInput.value = '';
+    resetModelOptions();
+    modelHint.textContent = 'Paste your key, then click "Load available models".';
     updateStatus();
     toast('All API keys removed from this browser.', 'success');
   });
@@ -220,11 +299,12 @@ function renderSettings(root) {
         'It is saved in localStorage of this browser and is sent only to the provider\'s API, directly. ',
         'It never touches any server of ours — there is none.'),
       el('label', {}, 'Provider'), providerSel,
-      el('label', {}, 'Model'), modelSel,
       el('label', {}, 'API key'), keyInput, keyHelp,
-      el('div', { style: 'display:flex; gap:10px; margin-top:16px; align-items:center;' },
-        saveBtn, testBtn, el('span', { class: 'spacer' }), statusEl,
+      el('div', { style: 'display:flex; gap:10px; margin-top:8px; align-items:center;' },
+        loadBtn, el('span', { class: 'spacer' }), statusEl,
       ),
+      el('label', {}, 'Model'), modelSel, modelHint,
+      el('div', { style: 'display:flex; gap:10px; margin-top:16px;' }, saveBtn),
     ),
     el('div', { class: 'card' },
       el('h2', {}, 'Danger zone'),
@@ -244,5 +324,5 @@ function renderSettings(root) {
     ),
   );
 
-  refreshProviderUI();
+  onProviderChange();
 }
