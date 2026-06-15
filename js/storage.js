@@ -77,6 +77,50 @@ export function saveProfile(profile) {
   ls.set(KEYS.PROFILE_META, meta);
 }
 
+const PROFILE_PHOTO_KEY = 'profile-photo';
+const PHOTO_MAX_BYTES = 5 * 1024 * 1024;
+
+export async function getProfilePhoto() {
+  try {
+    return await idb.get('files', PROFILE_PHOTO_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export async function hasProfilePhoto() {
+  const stored = await getProfilePhoto();
+  return !!stored?.blob;
+}
+
+export async function saveProfilePhoto(file) {
+  if (!file?.type?.startsWith('image/')) {
+    throw new Error('Choose a photo file (JPEG, PNG or WebP).');
+  }
+  if (file.size > PHOTO_MAX_BYTES) {
+    throw new Error('Photo must be 5 MB or smaller.');
+  }
+  await idb.set('files', PROFILE_PHOTO_KEY, {
+    name: file.name,
+    type: file.type,
+    blob: file,
+    savedAt: new Date().toISOString(),
+  });
+  const meta = ls.get(KEYS.PROFILE_META, {});
+  meta.hasPhoto = true;
+  meta.updatedAt = new Date().toISOString();
+  ls.set(KEYS.PROFILE_META, meta);
+}
+
+export async function removeProfilePhoto() {
+  try {
+    await idb.remove('files', PROFILE_PHOTO_KEY);
+  } catch { /* best effort */ }
+  const meta = ls.get(KEYS.PROFILE_META, {});
+  delete meta.hasPhoto;
+  ls.set(KEYS.PROFILE_META, meta);
+}
+
 // ---------- IndexedDB ----------
 
 const DB_NAME = 'jobradar';
