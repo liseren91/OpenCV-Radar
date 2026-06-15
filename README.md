@@ -1,4 +1,4 @@
-# 📡 Job Radar
+# 📡 Job Radar - DOWNLOAD FROM feat/selfhost-job-sources
 
 **Deep candidate profile → daily job radar → CV tailoring. Free, open source, privacy-first.**
 
