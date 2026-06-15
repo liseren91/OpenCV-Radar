@@ -1,6 +1,8 @@
 // providers/index.js — unified LLM interface.
 // chat(messages, opts?) routes to the provider chosen in settings.
-// Adding a provider = add an adapter file with {chat, testKey, MODELS} and register it here.
+// Adding a provider = add an adapter file exporting
+//   chat(messages, opts), listModels(apiKey), testKey(apiKey), DEFAULT_MODEL
+// and register it here.
 
 import * as openai from './openai.js';
 import * as anthropic from './anthropic.js';
@@ -13,14 +15,26 @@ export const PROVIDERS = [
   { id: 'anthropic', label: 'Anthropic', keyUrl: 'https://console.anthropic.com/settings/keys' },
 ];
 
-export function modelsFor(providerId) {
-  return ADAPTERS[providerId]?.MODELS ?? [];
+/**
+ * Ask the provider what models the key can use. This is the new way to populate
+ * the model selector — we no longer ship a hardcoded list.
+ * Also doubles as a key-validity check: a 401 here = bad key.
+ * @returns {Promise<Array<{id: string, label: string}>>}
+ */
+export async function listModels(providerId, apiKey) {
+  const adapter = ADAPTERS[providerId];
+  if (!adapter) throw new Error(`Unknown provider: ${providerId}`);
+  return adapter.listModels(apiKey);
+}
+
+export function defaultModelFor(providerId) {
+  return ADAPTERS[providerId]?.DEFAULT_MODEL ?? null;
 }
 
 /**
  * Unified chat call using current settings.
  * @param {Array<{role: string, content: string}>} messages
- * @param {{temperature?: number, maxTokens?: number, json?: boolean}} [opts]
+ * @param {{temperature?: number, maxTokens?: number, json?: boolean, model?: string}} [opts]
  * @returns {Promise<string>}
  */
 export async function chat(messages, opts = {}) {
@@ -31,9 +45,12 @@ export async function chat(messages, opts = {}) {
   const adapter = ADAPTERS[s.provider];
   if (!adapter) throw new Error(`Unknown provider: ${s.provider}`);
 
+  const model = opts.model || getActiveModel() || adapter.DEFAULT_MODEL;
+  if (!model) throw new Error('No model selected. Open Settings and pick a model.');
+
   return adapter.chat(messages, {
     apiKey,
-    model: opts.model || getActiveModel(),
+    model,
     temperature: opts.temperature,
     maxTokens: opts.maxTokens,
     json: opts.json,

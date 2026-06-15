@@ -35,15 +35,10 @@ export const KEYS = {
 
 // ---------- Settings helpers ----------
 
-const DEFAULT_MODELS = {
-  openai: 'gpt-4o-mini',
-  anthropic: 'claude-3-5-haiku-latest',
-};
-
 export function getSettings() {
   return ls.get(KEYS.SETTINGS, {
-    provider: null, // 'openai' | 'anthropic' — user picks during onboarding
-    model: null,
+    provider: null, // 'openai' | 'anthropic' — user picks in Settings
+    model: null,    // dynamic: fetched from the provider with the user's key
     apiKeys: {},
   });
 }
@@ -57,13 +52,10 @@ export function getActiveKey() {
   return s.provider ? (s.apiKeys?.[s.provider] || null) : null;
 }
 
+// Returns the user-chosen model id, or null if none has been picked yet.
+// The provider layer falls back to its DEFAULT_MODEL if this is null.
 export function getActiveModel() {
-  const s = getSettings();
-  return s.model || (s.provider ? DEFAULT_MODELS[s.provider] : null);
-}
-
-export function defaultModelFor(provider) {
-  return DEFAULT_MODELS[provider];
+  return getSettings().model || null;
 }
 
 export function deleteAllKeys() {
@@ -88,7 +80,8 @@ export function saveProfile(profile) {
 // ---------- IndexedDB ----------
 
 const DB_NAME = 'jobradar';
-const DB_VERSION = 1;
+// v2: repair empty v1 databases (stores missing → CV upload failed with NotFoundError).
+const DB_VERSION = 2;
 let dbPromise = null;
 
 function openDB() {

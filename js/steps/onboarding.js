@@ -84,7 +84,10 @@ function uploadCard(root, title) {
     } catch (err) {
       console.error(err);
       statusEl.textContent = '';
-      toast(String(err.message || err), 'error', 8000);
+      const msg = err?.name === 'NotFoundError'
+        ? 'Browser storage is in a bad state. Open Settings → Danger zone → wipe data, reload, and try again.'
+        : String(err.message || err);
+      toast(msg, 'error', 8000);
     }
   }
 
