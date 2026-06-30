@@ -42,10 +42,10 @@ export async function renderOnboarding(root) {
 
 // ---------- Profile photo (optional) ----------
 
-function rerenderOnboarding() {
+async function rerenderOnboarding() {
   const app = document.getElementById('app');
   app.innerHTML = '';
-  renderOnboarding(app);
+  await renderOnboarding(app);
 }
 
 async function photoCard(root) {
@@ -75,7 +75,7 @@ async function photoCard(root) {
     try {
       await saveProfilePhoto(file);
       toast('Profile photo saved.', 'success');
-      rerenderOnboarding();
+      await rerenderOnboarding();
     } catch (err) {
       toast(String(err.message || err), 'error', 7000);
     }
@@ -146,15 +146,16 @@ function uploadCard(root, title) {
       statusEl.innerHTML = '<span class="spinner"></span> Building draft profile with your LLM… (10–30s)';
       const prompt = await fillPrompt('parse-cv', { CV_TEXT: text.slice(0, 40000) });
       const profile = await chatJSON([{ role: 'user', content: prompt }], { temperature: 0.2 });
+      if (!profile || typeof profile !== 'object' || Array.isArray(profile)) {
+        throw new Error('LLM returned an invalid profile structure. Try again.');
+      }
 
       saveProfile(profile);
       ls.set(KEYS.PROFILE_META, { completeness: 35, interviewDone: false, updatedAt: new Date().toISOString() });
       toast('Draft profile created. Review it, then run the interview.', 'success', 6000);
-      location.hash = '#/onboarding';
-      // Re-render
-      const app = document.getElementById('app');
-      app.innerHTML = '';
-      renderOnboarding(app);
+      const appEl = document.getElementById('app');
+      appEl.innerHTML = '';
+      await renderOnboarding(appEl);
     } catch (err) {
       console.error(err);
       statusEl.textContent = '';
@@ -255,9 +256,9 @@ function renderImportExport(root, profile) {
       const parsed = JSON.parse(await file.text());
       saveProfile(parsed);
       toast('Profile imported.', 'success');
-      const app = document.getElementById('app');
-      app.innerHTML = '';
-      renderOnboarding(app);
+      const appEl = document.getElementById('app');
+      appEl.innerHTML = '';
+      await renderOnboarding(appEl);
     } catch (err) {
       toast('Import failed: ' + err.message, 'error', 7000);
     }
