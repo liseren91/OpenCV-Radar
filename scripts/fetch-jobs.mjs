@@ -19,22 +19,26 @@ import * as adzuna from './sources/adzuna.mjs';
 import * as hh from './sources/hh.mjs';
 import * as remoteok from './sources/remoteok.mjs';
 import * as arbeitnow from './sources/arbeitnow.mjs';
-import { titleMatchesQueries } from './sources/util.mjs';
+import { jobMatchesQueries, queriesToApiTerms } from './sources/query.mjs';
 
 const SOURCES = [remotive, adzuna, hh, remoteok, arbeitnow];
 
 // ---------- Config (tune via env or edit here) ----------
 
+// Keep default in sync with selfhost/worker/worker.py _DEFAULT_QUERIES.
+const RAW_QUERIES = (process.env.JOB_QUERIES
+  || 'product manager,product management,product owner,head of product,product lead,project manager,marketing technology,martech')
+  .split(',').map((q) => q.trim()).filter(Boolean);
+
 const CONFIG = {
-  // Search queries — aimed at the initial audience (PM / MarTech / AI, Remote/Belgrade/EU).
-  // Contributors: extend freely; each query hits each source once.
-  queries: (process.env.JOB_QUERIES
-    || 'product manager,product management,product owner,head of product,product lead,project manager,marketing technology,martech')
-    .split(',').map((q) => q.trim()).filter(Boolean),
+  // Original Boolean queries (used for local matchesQuery filtering).
+  queries: RAW_QUERIES,
+  // Flattened terms for external APIs that don't understand Boolean operators.
+  apiTerms: queriesToApiTerms(RAW_QUERIES),
   freshDays: Number(process.env.JOB_FRESH_DAYS || 14), // drop jobs older than this
   maxJobs: Number(process.env.JOB_MAX || 1500),        // hard cap on output size
   // Sources do full-text search ("product manager" anywhere in the description),
-  // so by default we also require the TITLE to match a query. JOB_TITLE_FILTER=off disables.
+  // so by default we also require the job to match a query. JOB_TITLE_FILTER=off disables.
   titleFilter: (process.env.JOB_TITLE_FILTER || 'strict') !== 'off',
 };
 
@@ -57,9 +61,14 @@ async function main() {
 
   console.log(`Job Radar fetch — sources: ${active.map((s) => s.name).join(', ')}`);
   console.log(`Queries: ${CONFIG.queries.join(' | ')}`);
+  if (CONFIG.apiTerms.join('|') !== CONFIG.queries.join('|')) {
+    console.log(`API terms: ${CONFIG.apiTerms.join(' | ')}`);
+  }
 
   const all = [];
   const stats = {};
+  // Sources receive flattened apiTerms as `queries` (they don't speak Boolean).
+  const sourceConfig = { ...CONFIG, queries: CONFIG.apiTerms };
 
   for (const source of active) {
     // Skip sources whose required env vars are missing (e.g. Adzuna keys not set up yet).
@@ -72,7 +81,7 @@ async function main() {
 
     try {
       const t0 = Date.now();
-      const jobs = await source.fetchJobs(CONFIG);
+      const jobs = await source.fetchJobs(sourceConfig);
       all.push(...jobs);
       stats[source.name] = { fetched: jobs.length, ms: Date.now() - t0 };
       console.log(`- ${source.name}: ${jobs.length} jobs (${Date.now() - t0}ms)`);
@@ -85,11 +94,12 @@ async function main() {
 
   // ---------- Normalize / filter / dedupe ----------
 
-  // Title relevance: full-text search noise (jobs that merely *mention* a query
-  // in the description) never reaches the pool.
-  const relevant = CONFIG.titleFilter ? all.filter((j) => titleMatchesQueries(j.title, CONFIG.queries)) : all;
+  // Boolean relevance: operators / fields are evaluated locally after the API fetch.
+  const relevant = CONFIG.titleFilter
+    ? all.filter((j) => jobMatchesQueries(j, CONFIG.queries, { titleOnlyCompat: true }))
+    : all;
   if (CONFIG.titleFilter && all.length !== relevant.length) {
-    console.log(`Title filter: dropped ${all.length - relevant.length} of ${all.length} (description-only matches)`);
+    console.log(`Query filter: dropped ${all.length - relevant.length} of ${all.length}`);
   }
 
   const fresh = relevant.filter((j) => withinDays(j.posted_at, CONFIG.freshDays));
@@ -113,7 +123,7 @@ async function main() {
   const carryOver = previous.filter((j) => !finalIds.has(j.id)
     && withinDays(j.posted_at, CONFIG.freshDays)
     // Re-check relevance so junk written before a filter/query change ages out immediately.
-    && (!CONFIG.titleFilter || titleMatchesQueries(j.title, CONFIG.queries)));
+    && (!CONFIG.titleFilter || jobMatchesQueries(j, CONFIG.queries, { titleOnlyCompat: true })));
   const merged = [...final, ...carryOver].slice(0, CONFIG.maxJobs);
 
   // ---------- Write ----------

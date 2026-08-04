@@ -5,8 +5,12 @@ import { el, toast, escapeHtml } from '../app.js';
 import { matchJobs, prefilter } from '../matcher.js';
 import { getProfile, getSettings, ls, KEYS } from '../storage.js';
 import { getPersonalJobs, mergeWithPool, ensureLocationFlags } from '../personal-jobs.js';
+import { tryParseQuery, matchesQuery } from '../query.js';
 
 const WEAK_SCORE = 40; // LLM-scored jobs below this are hidden behind a toggle
+const HELP_TEXT = `Boolean search: AND (default) · OR · NOT/- · "phrase" · (group)
+Fields: title: company: desc: tag: loc: any:
+Examples: product manager · (PM OR "product owner") -sales · company:stripe · -loc:"United States"`;
 
 export async function renderDashboard(root) {
   root.append(
@@ -86,38 +90,188 @@ export async function renderDashboard(root) {
       'Some personal sources failed: ', personal.errors.join('; ')));
   }
 
-  // --- Filters ---
+  // --- Filters (persisted) ---
   // Geo flags are three independent OR-filters: a Belgrade-based user wants
   // Remote OR Office (Belgrade) OR Relocate (office elsewhere, with help moving).
   // None checked = show all, mirroring the previous "Any location" default.
-  const state = { geo: new Set(), source: '', tag: '', query: '', onlyNew: false, showWeak: false };
+  const saved = ls.get(KEYS.DASH_FILTERS, {}) || {};
+  const state = {
+    geo: new Set(Array.isArray(saved.geo) ? saved.geo : []),
+    source: saved.source || '',
+    tag: saved.tag || '',
+    query: saved.query || '',
+    onlyNew: !!saved.onlyNew,
+    showWeak: false,
+    sort: saved.sort || 'relevance',
+    queryAst: null,
+    queryError: null,
+  };
+  if (state.query) {
+    const { ast, error } = tryParseQuery(state.query);
+    state.queryAst = error ? null : ast;
+    state.queryError = error;
+  }
+
+  function persistFilters() {
+    ls.set(KEYS.DASH_FILTERS, {
+      geo: [...state.geo],
+      source: state.source,
+      tag: state.tag,
+      query: state.query,
+      onlyNew: state.onlyNew,
+      sort: state.sort,
+    });
+  }
 
   const sources = [...new Set(jobs.map((j) => j.source))].sort();
   const tags = [...new Set(jobs.flatMap((j) => j.tags || []))].sort();
 
   const geoFilter = geoFilterBox((flag, on) => {
     if (on) state.geo.add(flag); else state.geo.delete(flag);
+    persistFilters();
+    renderList();
+  }, state.geo);
+  const sourceSel = sel([['', 'All sources'], ...sources.map((s) => [s, s])], (v) => {
+    state.source = v; persistFilters(); renderList();
+  }, state.source);
+  const tagSel = sel([['', 'All tags'], ...tags.map((t) => [t, t])], (v) => {
+    state.tag = v; persistFilters(); renderList();
+  }, state.tag);
+
+  const queryInput = el('input', {
+    type: 'text',
+    placeholder: 'Boolean: (product manager OR "product owner") -sales',
+    value: state.query,
+    title: HELP_TEXT,
+    style: 'min-width:280px; flex:1;',
+  });
+  const queryHint = el('span', {
+    class: 'muted',
+    style: 'font-size:12px; min-width:120px;',
+  });
+  function updateQueryHint() {
+    if (!state.query.trim()) {
+      queryHint.textContent = '';
+      queryInput.style.borderColor = '';
+      return;
+    }
+    if (state.queryError) {
+      queryHint.textContent = `⚠ ${state.queryError}`;
+      queryHint.style.color = 'var(--danger, #c0392b)';
+      queryInput.style.borderColor = 'var(--danger, #c0392b)';
+    } else {
+      queryHint.textContent = '✓ Boolean OK';
+      queryHint.style.color = 'var(--ok, #27ae60)';
+      queryInput.style.borderColor = '';
+    }
+  }
+  updateQueryHint();
+  queryInput.addEventListener('input', () => {
+    state.query = queryInput.value;
+    if (!state.query.trim()) {
+      state.queryAst = null;
+      state.queryError = null;
+    } else {
+      const { ast, error } = tryParseQuery(state.query);
+      state.queryAst = error ? null : ast;
+      state.queryError = error;
+    }
+    updateQueryHint();
+    persistFilters();
     renderList();
   });
-  const sourceSel = sel([['', 'All sources'], ...sources.map((s) => [s, s])], (v) => { state.source = v; renderList(); });
-  const tagSel = sel([['', 'All tags'], ...tags.map((t) => [t, t])], (v) => { state.tag = v; renderList(); });
-  const queryInput = el('input', { type: 'text', placeholder: 'Search title / company…' });
-  queryInput.addEventListener('input', () => { state.query = queryInput.value.toLowerCase(); renderList(); });
+
+  const helpBtn = el('button', {
+    class: 'btn btn-secondary btn-sm', type: 'button', title: HELP_TEXT,
+  }, '?');
+  helpBtn.addEventListener('click', () => {
+    toast(HELP_TEXT, 'info', 8000);
+  });
+
+  const sortSel = sel([
+    ['relevance', 'Sort: relevance'],
+    ['date', 'Sort: newest'],
+    ['salary', 'Sort: salary'],
+  ], (v) => { state.sort = v; persistFilters(); renderList(); }, state.sort);
+
   const newCb = el('input', { type: 'checkbox', id: 'only-new' });
-  newCb.addEventListener('change', () => { state.onlyNew = newCb.checked; renderList(); });
+  if (state.onlyNew) newCb.checked = true;
+  newCb.addEventListener('change', () => { state.onlyNew = newCb.checked; persistFilters(); renderList(); });
+
+  // Saved searches
+  const savedSearches = () => ls.get(KEYS.SAVED_SEARCHES, []) || [];
+  const saveBtn = el('button', { class: 'btn btn-secondary btn-sm', type: 'button' }, '☆ Save');
+  saveBtn.addEventListener('click', () => {
+    const name = prompt('Name this search', state.query || 'My search');
+    if (!name) return;
+    const list = savedSearches();
+    list.unshift({
+      name: name.trim(),
+      query: state.query,
+      geo: [...state.geo],
+      source: state.source,
+      tag: state.tag,
+      sort: state.sort,
+    });
+    ls.set(KEYS.SAVED_SEARCHES, list.slice(0, 20));
+    toast('Search saved', 'ok', 2000);
+    renderSavedDropdown();
+  });
+  const savedSel = el('select', {}, el('option', { value: '' }, 'Saved searches…'));
+  function renderSavedDropdown() {
+    savedSel.innerHTML = '';
+    savedSel.append(el('option', { value: '' }, 'Saved searches…'));
+    savedSearches().forEach((s, i) => {
+      savedSel.append(el('option', { value: String(i) }, s.name));
+    });
+  }
+  renderSavedDropdown();
+  savedSel.addEventListener('change', () => {
+    const idx = savedSel.value;
+    if (idx === '') return;
+    const s = savedSearches()[Number(idx)];
+    if (!s) return;
+    state.query = s.query || '';
+    state.geo = new Set(s.geo || []);
+    state.source = s.source || '';
+    state.tag = s.tag || '';
+    state.sort = s.sort || 'relevance';
+    if (state.query) {
+      const { ast, error } = tryParseQuery(state.query);
+      state.queryAst = error ? null : ast;
+      state.queryError = error;
+    } else {
+      state.queryAst = null; state.queryError = null;
+    }
+    queryInput.value = state.query;
+    sourceSel.value = state.source;
+    tagSel.value = state.tag;
+    sortSel.value = state.sort;
+    geoFilter.querySelectorAll('input[type=checkbox]').forEach((cb) => {
+      const flag = cb.id.replace(/^geo-/, '');
+      cb.checked = state.geo.has(flag);
+    });
+    updateQueryHint();
+    persistFilters();
+    renderList();
+    savedSel.value = '';
+  });
 
   root.append(el('div', { class: 'filters' },
-    geoFilter, sourceSel, tagSel, queryInput,
+    geoFilter, sourceSel, tagSel, sortSel,
+    queryInput, helpBtn, queryHint,
     el('label', { for: 'only-new', style: 'display:flex; align-items:center; gap:6px; margin:0; cursor:pointer;' }, newCb, 'NEW only'),
+    saveBtn, savedSel,
   ));
 
-  function sel(options, onChange) {
+  function sel(options, onChange, initial) {
     const s = el('select', {}, ...options.map(([v, label]) => el('option', { value: v }, label)));
+    if (initial) s.value = initial;
     s.addEventListener('change', () => onChange(s.value));
     return s;
   }
 
-  function geoFilterBox(onToggle) {
+  function geoFilterBox(onToggle, initialSet) {
     const items = [
       ['remote', '🌍 Remote', 'Can work from anywhere / your region'],
       ['office', '🏢 Office', 'On-site or hybrid — physical workplace expected'],
@@ -130,6 +284,7 @@ export async function renderDashboard(root) {
     });
     for (const [flag, label, hint] of items) {
       const cb = el('input', { type: 'checkbox', id: `geo-${flag}` });
+      if (initialSet?.has(flag)) cb.checked = true;
       cb.addEventListener('change', () => onToggle(flag, cb.checked));
       box.append(el('label', {
         for: `geo-${flag}`, title: hint,
@@ -181,23 +336,36 @@ export async function renderDashboard(root) {
     let shown = 0;
     let weakHidden = 0;
 
+    // Invalid Boolean syntax → show nothing (hint already visible) rather than silent full list.
+    if (state.query.trim() && state.queryError) {
+      listEl.append(el('div', { class: 'empty-state' },
+        el('div', { class: 'big' }, '⚠'),
+        el('p', {}, 'Fix the Boolean syntax to search. ',
+          el('button', { class: 'btn btn-sm btn-secondary', type: 'button', onclick: () => toast(HELP_TEXT, 'info', 8000) }, 'Syntax help'))));
+      return;
+    }
+
+    let filtered = [];
     for (const m of matches) {
       const j = m.job;
-      // Geo filter: OR over the selected flags. Empty set ⇒ no constraint.
       if (state.geo.size && ![...state.geo].some((flag) => j[flag])) continue;
       if (state.source && j.source !== state.source) continue;
       if (state.tag && !(j.tags || []).includes(state.tag)) continue;
       if (state.onlyNew && !newIds.has(j.id)) continue;
-      if (state.query && !`${j.title} ${j.company}`.toLowerCase().includes(state.query)) continue;
-      // AI said it's a weak fit — don't clutter the radar with it.
+      if (state.queryAst && !matchesQuery(state.queryAst, j)) continue;
       if (m.score !== null && m.score < WEAK_SCORE) {
         weakHidden++;
         if (!state.showWeak) continue;
       }
+      filtered.push(m);
+    }
 
-      listEl.append(jobCard(m, newIds.has(j.id)));
+    filtered = sortMatches(filtered, state.sort);
+
+    for (const m of filtered) {
+      listEl.append(jobCard(m, newIds.has(m.job.id)));
       shown++;
-      if (shown >= 100) break; // keep DOM light
+      if (shown >= 100) break;
     }
 
     if (weakHidden) {
@@ -213,6 +381,24 @@ export async function renderDashboard(root) {
         el('div', { class: 'big' }, '🔍'),
         el('p', {}, 'Nothing matches the current filters.')));
     }
+  }
+
+  function sortMatches(list, sort) {
+    const arr = [...list];
+    if (sort === 'date') {
+      arr.sort((a, b) => String(b.job.posted_at || '').localeCompare(String(a.job.posted_at || '')));
+    } else if (sort === 'salary') {
+      const sal = (j) => Math.max(j.salary?.max || 0, j.salary?.min || 0);
+      arr.sort((a, b) => sal(b.job) - sal(a.job));
+    } else {
+      // relevance: LLM score then localScore
+      arr.sort((a, b) => {
+        const sa = a.score !== null ? a.score : (a.localScore || 0);
+        const sb = b.score !== null ? b.score : (b.localScore || 0);
+        return sb - sa;
+      });
+    }
+    return arr;
   }
 
   function jobCard(match, isNew) {

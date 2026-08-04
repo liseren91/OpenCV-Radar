@@ -36,12 +36,12 @@ export async function fetchJobs(config) {
 
       let data;
       try {
-        // hh.ru requires a UA in "AppName/version (contact)" form and may still
-        // return 403 for some datacenter/foreign IPs — we degrade gracefully.
+        // hh.ru requires HH-User-Agent in "AppName/version (contact)" form.
+        // Generic browser UAs get 403; some datacenter IPs still do — degrade gracefully.
         data = await fetchJSON(url, {
           headers: {
-            'User-Agent': 'JobRadar/1.0 (https://github.com/job-radar)',
-            'HH-User-Agent': 'JobRadar/1.0 (https://github.com/job-radar)',
+            'User-Agent': 'JobRadar/1.0 (job-radar@users.noreply.github.com)',
+            'HH-User-Agent': 'JobRadar/1.0 (job-radar@users.noreply.github.com)',
           },
         });
       } catch (err) {

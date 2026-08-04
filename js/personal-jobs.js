@@ -8,6 +8,7 @@
 // cached in localStorage and merged into the dashboard pool.
 
 import { ls, KEYS, tinyHash } from './storage.js';
+import { jobMatchesQueries } from './query.js';
 
 const CACHE_TTL_HOURS = 6;
 const FRESH_DAYS = 14;
@@ -58,21 +59,6 @@ export function buildQueriesFromProfile(profile) {
   return out.slice(0, MAX_QUERIES);
 }
 
-// Same guard as the fetch pipeline: every significant word of at least one query
-// must appear in the title as a whole word (sources search full text otherwise).
-function titleMatchesQueries(title, queries) {
-  const t = String(title || '').toLowerCase();
-  return queries.some((q) => {
-    const words = String(q).toLowerCase().split(/[^a-zа-яё0-9+#.]+/).filter((w) => w.length >= 2);
-    return words.length > 0 &&
-      words.every((w) => new RegExp(`(^|[^a-zа-яё0-9])${escapeRe(w)}([^a-zа-яё0-9]|$)`, 'i').test(t));
-  });
-}
-
-function escapeRe(s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 // ---------- Fetching ----------
 
 /**
@@ -104,7 +90,7 @@ export async function getPersonalJobs(profile, { force = false } = {}) {
       const key = `${norm(job.company)}|${norm(job.title)}`;
       if (seen.has(key) || seen.has(job.url)) continue;
       seen.add(key); seen.add(job.url);
-      if (!titleMatchesQueries(job.title, queries)) continue;
+      if (!jobMatchesQueries(job, queries, { titleOnlyCompat: true })) continue;
       if (!withinDays(job.posted_at, FRESH_DAYS)) continue;
       jobs.push(job);
     }
@@ -172,7 +158,13 @@ async function fetchHH(queries) {
   for (const query of queries) {
     const url = `https://api.hh.ru/vacancies?text=${encodeURIComponent(query)}` +
       `&search_field=name&schedule=remote&period=${FRESH_DAYS}&per_page=50&order_by=publication_time`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(12000),
+      headers: {
+        'User-Agent': 'JobRadar/1.0 (job-radar@users.noreply.github.com)',
+        'HH-User-Agent': 'JobRadar/1.0 (job-radar@users.noreply.github.com)',
+      },
+    });
     if (!res.ok) throw new Error(`hh.ru HTTP ${res.status}`);
     const data = await res.json();
     for (const j of data.items || []) {

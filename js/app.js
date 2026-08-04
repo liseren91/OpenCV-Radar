@@ -7,6 +7,7 @@ import { renderOnboarding } from './steps/onboarding.js';
 import { renderInterview } from './steps/interview.js';
 import { renderDashboard } from './steps/dashboard.js';
 import { renderTailor } from './steps/tailor.js';
+import { renderXray } from './steps/xray.js';
 
 // ---------- Tiny DOM helpers ----------
 
@@ -46,6 +47,7 @@ const routes = {
   'onboarding': renderOnboarding,
   'interview': renderInterview,
   'dashboard': renderDashboard,
+  'xray': renderXray,
   'tailor': renderTailor,
 };
 

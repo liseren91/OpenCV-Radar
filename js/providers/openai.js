@@ -26,35 +26,69 @@ const HINTS = {
 const INCLUDE_RE = /^(gpt-|o1|o3|o4|chatgpt-)/i;
 const EXCLUDE_RE = /(embedding|audio|tts|whisper|realtime|search|transcribe|moderation|image|dall-e|davinci|babbage|instruct)/i;
 
+// The gpt-4 / gpt-3.5 families take `max_tokens`; reasoning models (o1, o3, o4,
+// gpt-5, ...) rejected it in favour of `max_completion_tokens` and only accept the
+// default temperature. Guess from the model id, then correct from the API's own
+// error message so unknown future models sort themselves out on the first call.
+const LEGACY_PARAMS_RE = /^(gpt-4o|gpt-4\.1|gpt-4-|gpt-4$|gpt-3\.5|chatgpt-)/i;
+const capsByModel = new Map();
+
+function capsFor(model) {
+  if (!capsByModel.has(model)) {
+    capsByModel.set(model, {
+      tokenParam: LEGACY_PARAMS_RE.test(model) ? 'max_tokens' : 'max_completion_tokens',
+      temperature: LEGACY_PARAMS_RE.test(model),
+    });
+  }
+  return capsByModel.get(model);
+}
+
 /**
  * @param {Array<{role: 'system'|'user'|'assistant', content: string}>} messages
  * @param {{apiKey: string, model: string, temperature?: number, maxTokens?: number, json?: boolean}} opts
  * @returns {Promise<string>} assistant text
  */
 export async function chat(messages, opts) {
-  const body = {
-    model: opts.model,
-    messages,
-    temperature: opts.temperature ?? 0.4,
-    max_tokens: opts.maxTokens ?? 4096,
-  };
-  if (opts.json) body.response_format = { type: 'json_object' };
+  const caps = capsFor(opts.model);
 
-  const res = await fetch(CHAT_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${opts.apiKey}`,
-    },
-    body: JSON.stringify(body),
-  });
+  for (let attempt = 0; ; attempt++) {
+    const body = { model: opts.model, messages };
+    body[caps.tokenParam] = opts.maxTokens ?? 4096;
+    if (caps.temperature) body.temperature = opts.temperature ?? 0.4;
+    if (opts.json) body.response_format = { type: 'json_object' };
 
-  if (!res.ok) {
+    const res = await fetch(CHAT_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${opts.apiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      return data.choices?.[0]?.message?.content ?? '';
+    }
+
     const detail = await safeError(res);
+    if (res.status === 400 && attempt < 2 && adaptCaps(caps, detail)) continue;
     throw new Error(`OpenAI error ${res.status}: ${detail}`);
   }
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content ?? '';
+}
+
+// Returns true if the message named a parameter we know how to drop or rename,
+// meaning the request is worth retrying.
+function adaptCaps(caps, detail) {
+  if (/max_completion_tokens/i.test(detail)) {
+    caps.tokenParam = caps.tokenParam === 'max_tokens' ? 'max_completion_tokens' : 'max_tokens';
+    return true;
+  }
+  if (/temperature/i.test(detail) && caps.temperature) {
+    caps.temperature = false;
+    return true;
+  }
+  return false;
 }
 
 /**

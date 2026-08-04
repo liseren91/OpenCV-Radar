@@ -1,0 +1,9 @@
+{
+  "ashby": ["linear", "ramp"],
+  "greenhouse": ["stripe", "airbnb", "discord", "figma", "notion"],
+  "lever": ["shopify", "netflix"],
+  "personio": [],
+  "recruitee": [],
+  "smartrecruiters": [],
+  "workable": []
+}

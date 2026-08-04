@@ -24,20 +24,27 @@ from pathlib import Path
 
 from normalize import (
     stable_id, strip_html, parse_date,
-    derive_location_flags, derive_tags, title_matches_queries,
+    derive_location_flags, derive_tags,
 )
+from query import job_matches_queries, queries_to_api_terms
 from sources import load_sources
 
 ROOT = Path(__file__).resolve().parents[2]  # repo root (mounted at /app)
 JOBS_FILE = ROOT / "data" / "jobs.json"
 
-QUERIES = [q.strip() for q in os.getenv("JOB_QUERIES", "product manager").split(",") if q.strip()]
+# Keep in sync with scripts/fetch-jobs.mjs CONFIG.queries default.
+_DEFAULT_QUERIES = (
+    "product manager,product management,product owner,head of product,"
+    "product lead,project manager,marketing technology,martech"
+)
+QUERIES = [q.strip() for q in os.getenv("JOB_QUERIES", _DEFAULT_QUERIES).split(",") if q.strip()]
+API_TERMS = queries_to_api_terms(QUERIES)
 LOCATION = os.getenv("JOB_LOCATION", "Remote")
 SITES = [s.strip() for s in os.getenv("JOBSPY_SITES", "").split(",") if s.strip()]
 RESULTS_WANTED = int(os.getenv("JOBSPY_RESULTS", "25"))
 FRESH_DAYS = int(os.getenv("JOB_FRESH_DAYS", "14"))
 INTERVAL_HOURS = float(os.getenv("FETCH_INTERVAL_HOURS", "12"))
-# Drop results whose TITLE doesn't match any query (set JOB_TITLE_FILTER=off to disable).
+# Drop results that don't match any query (set JOB_TITLE_FILTER=off to disable).
 TITLE_FILTER = os.getenv("JOB_TITLE_FILTER", "strict") != "off"
 
 
@@ -107,7 +114,7 @@ def run_scrapers() -> list[dict]:
         return []
 
     jobs: list[dict] = []
-    for query in QUERIES:
+    for query in API_TERMS:
         try:
             log(f"  jobspy: '{query}' @ {LOCATION} on {SITES}")
             df = scrape_jobs(
@@ -153,8 +160,10 @@ def run_scrapers() -> list[dict]:
 def run_registry_sources() -> list[dict]:
     """Run every enabled source module and collect normalized jobs.
     One broken source must never kill the cycle."""
+    # Sources receive flattened apiTerms as `queries` (they don't speak Boolean).
     config = {
-        "queries": QUERIES,
+        "queries": API_TERMS,
+        "raw_queries": QUERIES,
         "location": LOCATION,
         "fresh_days": FRESH_DAYS,
         "results_wanted": RESULTS_WANTED,
@@ -217,6 +226,8 @@ def merge_into_pool(scraped: list[dict]) -> None:
 
 def main() -> None:
     log(f"Job Radar worker: queries={QUERIES}, location='{LOCATION}', sites={SITES or 'none'}, every {INTERVAL_HOURS}h")
+    if API_TERMS != QUERIES:
+        log(f"  API terms: {API_TERMS}")
     while True:
         log("Cycle start: API sources (shared Node pipeline)")
         run_api_sources()
@@ -227,8 +238,11 @@ def main() -> None:
         collected = registry_jobs + scraped
         if TITLE_FILTER:
             before = len(collected)
-            collected = [j for j in collected if title_matches_queries(j["title"], QUERIES)]
-            log(f"  title filter: kept {len(collected)}/{before}")
+            collected = [
+                j for j in collected
+                if job_matches_queries(j, QUERIES, title_only_compat=True)
+            ]
+            log(f"  query filter: kept {len(collected)}/{before}")
         merge_into_pool(collected)
         log(f"Cycle done. Sleeping {INTERVAL_HOURS}h…")
         try:

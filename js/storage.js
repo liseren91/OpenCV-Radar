@@ -31,6 +31,8 @@ export const KEYS = {
   SEEN_JOBS: 'seenJobs',         // { ids: [...], lastVisit: iso }
   INTERVIEW_STATE: 'interviewState', // resumable interview state
   PERSONAL_JOBS: 'personalJobs', // { fetchedAt, queries, jobs } — browser-side personal fetch cache
+  DASH_FILTERS: 'dashFilters',   // persisted dashboard filter state
+  SAVED_SEARCHES: 'savedSearches', // [{ name, query, geo, source, tag }]
 };
 
 // ---------- Settings helpers ----------
